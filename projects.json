@@ -1,0 +1,18 @@
+[
+  {
+    "id": "my-api",
+    "name": "My API",
+    "description": "Backend REST API service",
+    "folder": "/workspace/my-api",
+    "discordChannelName": "my-api",
+    "discordChannelId": "1480869900267294784"
+  },
+  {
+    "id": "frontend-app",
+    "name": "Frontend App",
+    "description": "React frontend application",
+    "folder": "/workspace/frontend-app",
+    "discordChannelName": "frontend-app",
+    "discordChannelId": "1480869904520581152"
+  }
+]
