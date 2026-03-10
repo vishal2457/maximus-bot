@@ -171,9 +171,15 @@ Use a process manager like `pm2`:
 
 ```bash
 npm run build
-pm2 start dist/index.js --name discord-opencode-bridge
+npm run pm2:start
 pm2 save
+pm2 startup
 ```
+
+This project includes [`ecosystem.config.cjs`](./ecosystem.config.cjs), configured to:
+- run a single instance (important to avoid duplicate Discord event handling)
+- auto-restart on crashes
+- restart if memory exceeds `512M`
 
 Or with Docker — create a `Dockerfile`:
 
@@ -184,5 +190,5 @@ COPY package*.json ./
 RUN npm ci --production
 COPY dist/ ./dist/
 COPY projects.json ./
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/bundle.js"]
 ```

@@ -7,6 +7,9 @@
     "clean": "rm -rf dist",
     "dev": "nodemon --exec \"node -r esbuild-register ./src/index.ts\" -e .ts",
     "start": "node -r esbuild-register ./src/index.ts",
+    "pm2:start": "pnpm run build && pm2 start ecosystem.config.cjs --env production",
+    "pm2:restart": "pnpm run build && pm2 reload ecosystem.config.cjs --env production",
+    "pm2:stop": "pm2 delete discord-opencode-bridge",
     "format": "prettier --write .",
     "lint": "prettier --check ."
   },
@@ -25,6 +28,7 @@
     "esbuild": "^0.20.1",
     "esbuild-register": "^3.5.0",
     "nodemon": "^3.1.0",
+    "pm2": "^6.0.14",
     "prettier": "^3.6.2",
     "typescript": "^5.3.3",
     "vitest": "^3.0.9"
