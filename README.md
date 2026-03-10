@@ -8,14 +8,15 @@ Routes Discord messages from project-specific channels directly to [OpenCode](ht
 Discord Message
     │
     ▼
-DiscordBot (discord.js)
-    │  looks up channel → project
+DiscordBot (Chat SDK + Discord Adapter)
+    │  Gateway listener receives messages
+    │  Webhook endpoint handles interactions
     ▼
 ProjectManager (projects.json)
     │  resolves folder path
     ▼
-OpenCodeRunner (child_process.spawn)
-    │  runs `opencode run --prompt "..."` in project folder
+OpenCodeRunner (OpenCode SDK)
+    │  uses OpenCode SDK session API (scoped by project directory)
     ▼
 Discord Reply (formatted output)
 ```
@@ -36,21 +37,46 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Variable | Description |
-|---|---|
-| `DISCORD_TOKEN` | Your bot token from [Discord Developer Portal](https://discord.com/developers/applications) |
-| `DISCORD_GUILD_ID` | Right-click your server → Copy Server ID |
-| `DISCORD_CATEGORY_NAME` | Name of the category to create channels under (default: `OpenCode Projects`) |
-| `PORT` | Express server port (default: `3000`) |
-| `WEBHOOK_SECRET` | Secret for protecting HTTP endpoints |
-| `OPENCODE_BIN` | Path to opencode binary (default: `opencode`) |
-| `PROJECTS_FILE` | Path to projects.json (default: `./projects.json`) |
+| Variable                           | Description                                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`                | Bot token from [Discord Developer Portal](https://discord.com/developers/applications)          |
+| `DISCORD_TOKEN`                    | Backward-compatible alias for `DISCORD_BOT_TOKEN`                                               |
+| `DISCORD_GUILD_ID`                 | Right-click your server → Copy Server ID                                                        |
+| `DISCORD_CATEGORY_NAME`            | Name of the category to create channels under (default: `OpenCode Projects`)                    |
+| `DISCORD_APPLICATION_ID`           | Discord application ID                                                                          |
+| `DISCORD_PUBLIC_KEY`               | Discord public key for interaction signature verification                                       |
+| `DISCORD_WEBHOOK_URL`              | Optional URL used by gateway forward mode (example: `https://your-domain/api/webhooks/discord`) |
+| `DISCORD_GATEWAY_DURATION_MS`      | Gateway listener duration per cycle in ms (default: `600000`)                                   |
+| `DISCORD_GATEWAY_RESTART_DELAY_MS` | Delay before restarting gateway listener in ms (default: `2000`)                                |
+| `PORT`                             | Express server port (default: `3000`)                                                           |
+| `WEBHOOK_SECRET`                   | Secret for protecting HTTP endpoints                                                            |
+| `OPENCODE_PERMISSION_MODE`         | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`)                        |
+| `OPENCODE_RUN_TIMEOUT_MS`          | Per-run timeout in milliseconds (default: `300000`)                                             |
+| `OPENCODE_SERVER_START_TIMEOUT_MS` | OpenCode server startup timeout in milliseconds (default: `30000`)                              |
+| `OPENCODE_RUN_RETRY_COUNT`         | Number of retries after a failed run (default: `1`)                                             |
+| `OPENCODE_MAX_PROMPT_LENGTH`       | Maximum accepted prompt length (default: `8000`)                                                |
+| `OPENCODE_MAX_OUTPUT_LENGTH`       | Output cap before truncation (default: `1800`)                                                  |
+| `PROJECTS_FILE`                    | Path to projects.json (default: `./projects.json`)                                              |
 
-### 3. Discord Bot Permissions
+### 3. Discord Application Setup
 
 In the Developer Portal, your bot needs:
+
 - **Intents**: `Server Members`, `Message Content`
 - **Permissions**: `Manage Channels`, `Send Messages`, `Read Message History`
+- **Interactions Endpoint URL**: `https://your-domain/api/webhooks/discord`
+
+For local development, run a tunnel:
+
+```bash
+ngrok http 3000
+```
+
+Then set the Interactions endpoint to:
+
+```text
+https://<ngrok-id>.ngrok.io/api/webhooks/discord
+```
 
 ### 4. Configure projects.json
 
@@ -83,10 +109,12 @@ npm run build && npm start
 ```
 
 On startup the bot will:
-1. Log in to Discord
+
+1. Initialize Chat SDK + Discord adapter
 2. Find or create the `OpenCode Projects` category
 3. Create a channel for each project in `projects.json`
 4. Save channel IDs back to `projects.json`
+5. Start a continuous Discord Gateway listener loop
 
 ## Usage
 
@@ -107,6 +135,7 @@ Prefix with `#` to leave a note without triggering OpenCode:
 ### HTTP API
 
 All mutating endpoints require the `x-webhook-secret` header.
+`POST /api/webhooks/discord` is public for Discord interaction verification/events and should not use `x-webhook-secret`.
 
 ```bash
 # Health check

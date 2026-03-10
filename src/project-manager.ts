@@ -15,7 +15,9 @@ export class ProjectManager {
 
   private load(): void {
     if (!fs.existsSync(this.filePath)) {
-      console.warn(`[ProjectManager] projects.json not found at ${this.filePath}, creating empty file.`);
+      console.warn(
+        `[ProjectManager] projects.json not found at ${this.filePath}, creating empty file.`,
+      );
       fs.writeFileSync(this.filePath, JSON.stringify([], null, 2));
     }
     const raw = fs.readFileSync(this.filePath, "utf-8");
@@ -52,7 +54,9 @@ export class ProjectManager {
     if (project) {
       project.discordChannelId = channelId;
       this.save();
-      console.log(`[ProjectManager] Updated channelId for project "${projectId}" → ${channelId}`);
+      console.log(
+        `[ProjectManager] Updated channelId for project "${projectId}" → ${channelId}`,
+      );
     }
   }
 }

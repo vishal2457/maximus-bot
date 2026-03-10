@@ -1,18 +1,18 @@
 [
   {
-    "id": "my-api",
-    "name": "My API",
-    "description": "Backend REST API service",
-    "folder": "/workspace/my-api",
-    "discordChannelName": "my-api",
-    "discordChannelId": "1480869900267294784"
+    "id": "main-derived",
+    "name": "Main Derived",
+    "description": "Main Derived app stack",
+    "folder": "/Users/vishalacharya/Documents/derived/main-derived",
+    "discordChannelName": "main-derived",
+    "discordChannelId": "1480921122576011376"
   },
   {
-    "id": "frontend-app",
-    "name": "Frontend App",
-    "description": "React frontend application",
-    "folder": "/workspace/frontend-app",
-    "discordChannelName": "frontend-app",
-    "discordChannelId": "1480869904520581152"
+    "id": "Fizbo",
+    "name": "Fizbo",
+    "description": "Fizbo app stack",
+    "folder": "/Users/vishalacharya/Documents/derived/fizbo.online/next-ts",
+    "discordChannelName": "fizbo",
+    "discordChannelId": "1480921126807801909"
   }
 ]
