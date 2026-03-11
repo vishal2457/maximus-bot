@@ -1,5 +1,12 @@
 import { ProjectManager } from "../project-manager";
-import { runOpenCode, formatResultForDiscord } from "../open-code-runner";
+import {
+  formatResultForDiscord,
+  type OpenCodeInteractionHandler,
+  type OpenCodePermissionReply,
+  type OpenCodePermissionRequest,
+  type OpenCodeQuestionRequest,
+  runOpenCode,
+} from "../open-code-runner";
 import { MessageJob } from "../types";
 import { jobRepository } from "../repositories/job-repository";
 
@@ -12,6 +19,11 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
+const SESSION_THREAD_TITLE_PREVIEW_LENGTH = 120;
+const PENDING_OPENCODE_INPUT_TIMEOUT_MS = parsePositiveInt(
+  process.env.PENDING_OPENCODE_INPUT_TIMEOUT_MS,
+  15 * 60 * 1000,
+);
 const CHANNEL_CACHE_TTL_MS = parsePositiveInt(
   process.env.DISCORD_CHANNEL_CACHE_TTL_MS,
   15 * 60 * 1000,
@@ -44,6 +56,7 @@ type ChatMessage = {
   text: string;
   author: ChatAuthor;
   threadId: string;
+  isMention?: boolean;
 };
 
 type ChatSentMessage = {
@@ -80,8 +93,7 @@ type ChatBotLike = {
   };
   initialize(): Promise<void>;
   shutdown(): Promise<void>;
-  onNewMessage(
-    pattern: RegExp,
+  onNewMention(
     handler: (thread: ChatThread, message: ChatMessage) => Promise<void>,
   ): void;
 };
@@ -118,6 +130,24 @@ type ChatCtor = new (config: {
   state: unknown;
 }) => ChatBotLike;
 
+type PendingPermissionInput = {
+  kind: "permission";
+  request: OpenCodePermissionRequest;
+  resolve(value: OpenCodePermissionReply): void;
+  reject(error: Error): void;
+  expiresAt: number;
+};
+
+type PendingQuestionInput = {
+  kind: "question";
+  request: OpenCodeQuestionRequest;
+  resolve(value: string[][]): void;
+  reject(error: Error): void;
+  expiresAt: number;
+};
+
+type PendingOpenCodeInput = PendingPermissionInput | PendingQuestionInput;
+
 type ChatSdkModule = {
   Chat: ChatCtor;
 };
@@ -145,6 +175,7 @@ export class DiscordBot {
   private channelMetaCache = new Map<string, CachedChannelMeta>();
   private threadParentCache = new Map<string, CachedThreadParent>();
   private channelMetaInFlight = new Map<string, Promise<CachedChannelMeta | null>>();
+  private pendingOpenCodeInputs = new Map<string, PendingOpenCodeInput>();
 
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
@@ -180,6 +211,11 @@ export class DiscordBot {
   async shutdown(): Promise<void> {
     this.isStopping = true;
     this.isInitialized = false;
+
+    for (const [threadId, pending] of this.pendingOpenCodeInputs.entries()) {
+      this.pendingOpenCodeInputs.delete(threadId);
+      pending.reject(new Error("Discord bot is shutting down."));
+    }
 
     if (this.gatewayAbortController) {
       this.gatewayAbortController.abort();
@@ -307,8 +343,9 @@ export class DiscordBot {
           `**${project.name}** development channel ready.\n` +
             `Folder: \`${project.folder}\`\n` +
             `${project.description}\n\n` +
-            `Send any message here to start an OpenCode coding session. ` +
-            `Use threads to continue sessions. Prefix with \`#\` to leave a note.`,
+            `Mention the bot to start an OpenCode coding session. ` +
+            `Use threads to continue sessions, and mention the bot there too. ` +
+            `Prefix with \`#\` to leave a note.`,
         );
       }
 
@@ -355,7 +392,7 @@ export class DiscordBot {
       state: createMemoryState(),
     });
 
-    bot.onNewMessage(/^[\s\S]+$/, async (thread, message) => {
+    bot.onNewMention(async (thread, message) => {
       await this.handleIncomingMessage(thread, message);
     });
 
@@ -389,7 +426,7 @@ export class DiscordBot {
       return;
     }
 
-    const prompt = message.text.trim();
+    const prompt = this.extractMentionPrompt(message.text);
     if (!prompt || prompt.startsWith("#")) {
       return;
     }
@@ -404,6 +441,13 @@ export class DiscordBot {
       message.threadId,
     );
     const isNewThread = resolvedThreadId === rawChannelId;
+
+    if (
+      !isNewThread &&
+      (await this.tryHandlePendingOpenCodeInput(thread, resolvedThreadId, prompt))
+    ) {
+      return;
+    }
 
     if (isNewThread) {
       let targetThread: ThreadHandle = thread;
@@ -478,17 +522,22 @@ export class DiscordBot {
       startedAt: new Date(),
     });
 
-    const thinkingMsg = await thread.post(
+    await thread.post(
       isLinearChannel
         ? `Starting new OpenCode session for Linear issues in \`${project.name}\`...\n> ${prompt.slice(0, 200)}`
         : `Starting new OpenCode session in \`${project.folder}\`...\n> ${prompt.slice(0, 200)}`,
     );
 
-    const typing = await this.startTypingInterval(thread.id);
+    const typing = await this.startTypingInterval(threadId);
 
     try {
       console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
-      const result = await runOpenCode(prompt, project.folder);
+      const result = await runOpenCode(
+        prompt,
+        project.folder,
+        undefined,
+        this.createOpenCodeInteractionHandler(thread, threadId),
+      );
       console.log(
         `[Discord] runOpenCode completed for job ${jobId}: success=${result.success}, duration=${result.duration}ms`,
       );
@@ -506,7 +555,7 @@ export class DiscordBot {
       );
 
       const reply = formatResultForDiscord(result, project.name);
-      await thinkingMsg.edit(reply);
+      await thread.post(reply);
       typing.stop();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -518,11 +567,13 @@ export class DiscordBot {
       });
 
       try {
-        await thinkingMsg.edit(`Internal error: ${errMsg}`);
+        await thread.post(`Internal error: ${errMsg}`);
         typing.stop();
       } catch (editErr: unknown) {
-        console.error("[Discord] Failed to edit thinking message:", editErr);
+        console.error("[Discord] Failed to post error message:", editErr);
       }
+    } finally {
+      this.cancelPendingOpenCodeInput(threadId);
     }
   }
 
@@ -575,17 +626,22 @@ export class DiscordBot {
       `[Discord] Job ${jobId} from ${authorTag} in thread ${threadId}: ${prompt.slice(0, 80)}${sessionId ? " (resuming session)" : ""}`,
     );
 
-    const thinkingMsg = await thread.post(
+    await thread.post(
       isLinearChannel
         ? `Continuing OpenCode session for Linear issues...\n> ${prompt.slice(0, 200)}`
         : `Continuing OpenCode session...\n> ${prompt.slice(0, 200)}`,
     );
 
-    const typing = await this.startTypingInterval(thread.id);
+    const typing = await this.startTypingInterval(threadId);
 
     try {
       console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
-      const result = await runOpenCode(prompt, project.folder, sessionId);
+      const result = await runOpenCode(
+        prompt,
+        project.folder,
+        sessionId,
+        this.createOpenCodeInteractionHandler(thread, threadId),
+      );
       console.log(
         `[Discord] runOpenCode completed for job ${jobId}: success=${result.success}, duration=${result.duration}ms`,
       );
@@ -603,7 +659,7 @@ export class DiscordBot {
       );
 
       const reply = formatResultForDiscord(result, project.name);
-      await thinkingMsg.edit(reply);
+      await thread.post(reply);
       typing.stop();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -615,12 +671,174 @@ export class DiscordBot {
       });
 
       try {
-        await thinkingMsg.edit(`Internal error: ${errMsg}`);
+        await thread.post(`Internal error: ${errMsg}`);
         typing.stop();
       } catch (editErr: unknown) {
-        console.error("[Discord] Failed to edit thinking message:", editErr);
+        console.error("[Discord] Failed to post error message:", editErr);
       }
+    } finally {
+      this.cancelPendingOpenCodeInput(threadId);
     }
+  }
+
+  private createOpenCodeInteractionHandler(
+    thread: ThreadHandle,
+    threadId: string,
+  ): OpenCodeInteractionHandler {
+    return {
+      onPermissionRequest: async (request) =>
+        this.waitForPermissionReply(thread, threadId, request),
+      onQuestionRequest: async (request) =>
+        this.waitForQuestionReply(thread, threadId, request),
+    };
+  }
+
+  private async waitForPermissionReply(
+    thread: ThreadHandle,
+    threadId: string,
+    request: OpenCodePermissionRequest,
+  ): Promise<OpenCodePermissionReply> {
+    const lines = [
+      `OpenCode needs approval for \`${request.permission}\`.`,
+    ];
+
+    if (request.patterns.length) {
+      lines.push(`Patterns: ${request.patterns.map((item) => `\`${item}\``).join(", ")}`);
+    }
+
+    lines.push(
+      "Reply in this thread by mentioning the bot with one of: `approve once`, `approve always`, `deny`.",
+    );
+
+    await thread.post(lines.join("\n"));
+
+    return new Promise<OpenCodePermissionReply>((resolve, reject) => {
+      this.registerPendingOpenCodeInput(threadId, {
+        kind: "permission",
+        request,
+        resolve,
+        reject,
+        expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
+      });
+    });
+  }
+
+  private async waitForQuestionReply(
+    thread: ThreadHandle,
+    threadId: string,
+    request: OpenCodeQuestionRequest,
+  ): Promise<string[][]> {
+    const lines = [
+      "OpenCode needs more input before it can continue.",
+    ];
+
+    request.questions.forEach((question, index) => {
+      lines.push("");
+      lines.push(`${index + 1}. **${question.header}**`);
+      lines.push(question.question);
+
+      question.options.forEach((option, optionIndex) => {
+        lines.push(
+          `   ${optionIndex + 1}. ${option.label} - ${option.description}`,
+        );
+      });
+    });
+
+    if (request.questions.length === 1) {
+      lines.push("");
+      lines.push(
+        "Reply in this thread by mentioning the bot with the option number, option label, or a custom answer.",
+      );
+    } else {
+      lines.push("");
+      lines.push(
+        "Reply in this thread by mentioning the bot and sending one answer per line, in order.",
+      );
+    }
+
+    await thread.post(lines.join("\n"));
+
+    return new Promise<string[][]>((resolve, reject) => {
+      this.registerPendingOpenCodeInput(threadId, {
+        kind: "question",
+        request,
+        resolve,
+        reject,
+        expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
+      });
+    });
+  }
+
+  private registerPendingOpenCodeInput(
+    threadId: string,
+    pending: PendingOpenCodeInput,
+  ): void {
+    const existing = this.pendingOpenCodeInputs.get(threadId);
+    if (existing) {
+      existing.reject(
+        new Error("Another approval request replaced the pending one."),
+      );
+    }
+
+    this.pendingOpenCodeInputs.set(threadId, pending);
+  }
+
+  private cancelPendingOpenCodeInput(threadId: string): void {
+    const pending = this.pendingOpenCodeInputs.get(threadId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingOpenCodeInputs.delete(threadId);
+    pending.reject(new Error("The OpenCode run ended before the input was used."));
+  }
+
+  private async tryHandlePendingOpenCodeInput(
+    thread: ThreadHandle,
+    threadId: string,
+    prompt: string,
+  ): Promise<boolean> {
+    const pending = this.pendingOpenCodeInputs.get(threadId);
+    if (!pending) {
+      return false;
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      this.pendingOpenCodeInputs.delete(threadId);
+      pending.reject(new Error("Timed out waiting for Discord input."));
+      await thread.post("That approval request expired. Re-run the task if needed.");
+      return true;
+    }
+
+    if (pending.kind === "permission") {
+      const reply = parsePermissionReply(prompt);
+      if (!reply) {
+        await thread.post(
+          "Reply with `approve once`, `approve always`, or `deny` while mentioning the bot.",
+        );
+        return true;
+      }
+
+      this.pendingOpenCodeInputs.delete(threadId);
+      pending.resolve(reply);
+      await thread.post(`Recorded approval: \`${reply}\`.`);
+      return true;
+    }
+
+    const answers = parseQuestionAnswers(pending.request, prompt);
+    if (!answers) {
+      await thread.post(
+        pending.request.questions.length === 1
+          ? "Could not parse that answer. Reply with the option number, option label, or a custom answer while mentioning the bot."
+          : "Could not parse that answer. Reply with one answer per line, in the same order, while mentioning the bot.",
+      );
+      return true;
+    }
+
+    this.pendingOpenCodeInputs.delete(threadId);
+    pending.resolve(answers);
+    await thread.post("Recorded input. Continuing the OpenCode run.");
+    return true;
   }
 
   private async resolveChannelId(
@@ -940,6 +1158,20 @@ export class DiscordBot {
     return response.json();
   }
 
+  private extractMentionPrompt(text: string): string | null {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const prompt = trimmed
+      .replace(/<@!?\d+>/g, " ")
+      .replace(/^(?:@\S+\s*)+/, "")
+      .trim();
+
+    return prompt || null;
+  }
+
   private async createSessionThread(
     channelId: string,
     prompt: string,
@@ -968,6 +1200,10 @@ export class DiscordBot {
       fetchedAt: Date.now(),
     });
 
+    await this.discordApi(`/channels/${created.id}/messages`, "POST", {
+      content: formatSessionThreadTitle(prompt),
+    });
+
     return {
       id: created.id,
       channelId,
@@ -990,6 +1226,124 @@ export class DiscordBot {
       },
     };
   }
+}
+
+function parsePermissionReply(prompt: string): OpenCodePermissionReply | null {
+  const normalized = prompt.trim().toLowerCase();
+
+  if (
+    normalized === "approve" ||
+    normalized === "approve once" ||
+    normalized === "allow" ||
+    normalized === "allow once" ||
+    normalized === "once"
+  ) {
+    return "once";
+  }
+
+  if (
+    normalized === "approve always" ||
+    normalized === "allow always" ||
+    normalized === "always"
+  ) {
+    return "always";
+  }
+
+  if (
+    normalized === "deny" ||
+    normalized === "reject" ||
+    normalized === "deny once"
+  ) {
+    return "reject";
+  }
+
+  return null;
+}
+
+function parseQuestionAnswers(
+  request: OpenCodeQuestionRequest,
+  prompt: string,
+): string[][] | null {
+  const lines = prompt
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return null;
+  }
+
+  if (request.questions.length === 1) {
+    const answer = parseSingleQuestionAnswer(request.questions[0], prompt.trim());
+    return answer ? [answer] : null;
+  }
+
+  if (lines.length !== request.questions.length) {
+    return null;
+  }
+
+  const answers: string[][] = [];
+  for (let index = 0; index < request.questions.length; index += 1) {
+    const parsed = parseSingleQuestionAnswer(request.questions[index], lines[index]);
+    if (!parsed) {
+      return null;
+    }
+    answers.push(parsed);
+  }
+
+  return answers;
+}
+
+function parseSingleQuestionAnswer(
+  question: OpenCodeQuestionRequest["questions"][number],
+  rawAnswer: string,
+): string[] | null {
+  const normalized = rawAnswer.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (!question.options.length) {
+    return [normalized];
+  }
+
+  const candidates = question.multiple
+    ? normalized
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [normalized];
+
+  const parsed: string[] = [];
+
+  for (const candidate of candidates) {
+    const byIndex = Number.parseInt(candidate, 10);
+    if (
+      Number.isFinite(byIndex) &&
+      byIndex >= 1 &&
+      byIndex <= question.options.length
+    ) {
+      parsed.push(question.options[byIndex - 1].label);
+      continue;
+    }
+
+    const matchedOption = question.options.find(
+      (option) => option.label.toLowerCase() === candidate.toLowerCase(),
+    );
+    if (matchedOption) {
+      parsed.push(matchedOption.label);
+      continue;
+    }
+
+    if (question.custom !== false) {
+      parsed.push(candidate);
+      continue;
+    }
+
+    return null;
+  }
+
+  return parsed.length ? parsed : null;
 }
 
 async function loadModule<TModule>(specifier: string): Promise<TModule> {
@@ -1021,4 +1375,17 @@ function truncateDiscordMessage(content: string): string {
 
 function isDiscordSnowflake(value: string): boolean {
   return /^\d{15,22}$/.test(value);
+}
+
+function formatSessionThreadTitle(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "session";
+  }
+
+  if (normalized.length <= SESSION_THREAD_TITLE_PREVIEW_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, SESSION_THREAD_TITLE_PREVIEW_LENGTH - 3).trimEnd()}...`;
 }

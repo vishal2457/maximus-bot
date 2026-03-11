@@ -50,12 +50,13 @@ Fill in `.env`:
 | `DISCORD_GATEWAY_RESTART_DELAY_MS` | Delay before restarting gateway listener in ms (default: `2000`)                                |
 | `PORT`                             | Express server port (default: `3000`)                                                           |
 | `WEBHOOK_SECRET`                   | Secret for protecting HTTP endpoints                                                            |
-| `OPENCODE_PERMISSION_MODE`         | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`)                        |
+| `OPENCODE_PERMISSION_MODE`         | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`). In `ask` mode, Discord users can approve in-thread. |
 | `OPENCODE_RUN_TIMEOUT_MS`          | Per-run timeout in milliseconds (default: `300000`)                                             |
 | `OPENCODE_SERVER_START_TIMEOUT_MS` | OpenCode server startup timeout in milliseconds (default: `30000`)                              |
 | `OPENCODE_RUN_RETRY_COUNT`         | Number of retries after a failed run (default: `1`)                                             |
 | `OPENCODE_MAX_PROMPT_LENGTH`       | Maximum accepted prompt length (default: `8000`)                                                |
 | `OPENCODE_MAX_OUTPUT_LENGTH`       | Output cap before truncation (default: `1800`)                                                  |
+| `PENDING_OPENCODE_INPUT_TIMEOUT_MS` | How long Discord approval/question prompts stay open before expiring (default: `900000`)      |
 | `PROJECTS_FILE`                    | Path to projects.json (default: `./projects.json`)                                              |
 
 ### 3. Discord Application Setup
@@ -120,17 +121,29 @@ On startup the bot will:
 
 ### Discord
 
-Send any message in a project channel to run OpenCode:
+Mention the bot in a project channel to run OpenCode:
 
 ```
-refactor the auth middleware to use JWT
+@maximus refactor the auth middleware to use JWT
 ```
+
+Mention the bot inside a session thread to continue that session. Messages without a bot mention are ignored, so you can add other people to the channel without triggering OpenCode.
 
 Prefix with `#` to leave a note without triggering OpenCode:
 
 ```
 # TODO: clean this up next sprint
 ```
+
+When `OPENCODE_PERMISSION_MODE=ask`, the bot can pause for approval or input in the session thread. Reply by mentioning the bot:
+
+```text
+@maximus approve once
+@maximus approve always
+@maximus deny
+```
+
+If OpenCode asks a follow-up question, reply in the same thread with the option number, option label, or custom answer while mentioning the bot.
 
 ### HTTP API
 
