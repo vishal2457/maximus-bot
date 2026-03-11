@@ -177,6 +177,7 @@ pm2 startup
 ```
 
 This project includes [`ecosystem.config.cjs`](./ecosystem.config.cjs), configured to:
+
 - run a single instance (important to avoid duplicate Discord event handling)
 - auto-restart on crashes
 - restart if memory exceeds `512M`

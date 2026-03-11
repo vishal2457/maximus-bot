@@ -3,8 +3,11 @@ export interface Project {
   name: string;
   description: string;
   folder: string;
-  discordChannelName: string;
-  discordChannelId: string;
+  discordCategoryId: string;
+  developmentChannelId: string;
+  linearIssuesChannelId: string;
+  linearProjectId?: string;
+  linearProjectName?: string;
 }
 
 export interface OpenCodeResult {
@@ -13,12 +16,15 @@ export interface OpenCodeResult {
   error?: string;
   exitCode: number;
   duration: number;
+  sessionId?: string;
 }
 
 export interface MessageJob {
   projectId: string;
   channelId: string;
-  messageId: string;
+  threadId: string;
+  sessionId?: string;
   prompt: string;
   authorTag: string;
+  isLinearChannel: boolean;
 }
