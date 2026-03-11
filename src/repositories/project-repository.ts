@@ -14,7 +14,7 @@ export class ProjectRepository {
     return result;
   }
 
-  getByChannelId(channelId: string): Project | undefined {
+  getByDiscordChannelId(channelId: string): Project | undefined {
     const db = getDb();
     const result = db
       .select()
@@ -29,6 +29,7 @@ export class ProjectRepository {
     return result;
   }
 
+
   getByCategoryId(categoryId: string): Project | undefined {
     const db = getDb();
     const result = db
@@ -39,7 +40,7 @@ export class ProjectRepository {
     return result;
   }
 
-  updateChannelIds(
+  updateDiscordChannelIds(
     id: string,
     categoryId: string,
     developmentChannelId: string,

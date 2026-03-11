@@ -14,19 +14,30 @@ type DbProject = {
   discordCategoryId: string | null;
   developmentChannelId: string | null;
   linearIssuesChannelId: string | null;
+  slackDevelopmentChannelId: string | null;
+  slackLinearIssuesChannelId: string | null;
   linearProjectId: string | null;
   linearProjectName: string | null;
 };
 
 function mapDbProject(p: DbProject): Project {
+  const legacyDev = p.developmentChannelId || "";
+  const legacyLinear = p.linearIssuesChannelId || "";
+  const slackDev = p.slackDevelopmentChannelId || "";
+  const slackLinear = p.slackLinearIssuesChannelId || "";
+
   return {
     id: p.id,
     name: p.name,
     description: p.description,
     folder: p.folder,
     discordCategoryId: p.discordCategoryId || "",
-    developmentChannelId: p.developmentChannelId || "",
-    linearIssuesChannelId: p.linearIssuesChannelId || "",
+    developmentChannelId: legacyDev,
+    linearIssuesChannelId: legacyLinear,
+    // Backward-compatible fallback for pre-migration data.
+    slackDevelopmentChannelId: slackDev || (isSlackChannelId(legacyDev) ? legacyDev : ""),
+    slackLinearIssuesChannelId:
+      slackLinear || (isSlackChannelId(legacyLinear) ? legacyLinear : ""),
     linearProjectId: p.linearProjectId || undefined,
     linearProjectName: p.linearProjectName || undefined,
   };
@@ -50,7 +61,22 @@ export class ProjectManager {
       fs.writeFileSync(this.filePath, JSON.stringify([], null, 2));
     }
     const raw = fs.readFileSync(this.filePath, "utf-8");
-    this.projects = JSON.parse(raw) as Project[];
+    const parsed = JSON.parse(raw) as Array<Partial<Project>>;
+    this.projects = parsed.map((project) => ({
+      id: project.id || "",
+      name: project.name || "",
+      description: project.description || "",
+      folder: project.folder || "",
+      discordCategoryId: project.discordCategoryId || "",
+      developmentChannelId: project.developmentChannelId || "",
+      linearIssuesChannelId: project.linearIssuesChannelId || "",
+      slackDevelopmentChannelId: project.slackDevelopmentChannelId || "",
+      slackLinearIssuesChannelId: project.slackLinearIssuesChannelId || "",
+      slackTeamId: project.slackTeamId,
+      slackCategoryId: project.slackCategoryId,
+      linearProjectId: project.linearProjectId,
+      linearProjectName: project.linearProjectName,
+    }));
     console.log(
       `[ProjectManager] Loaded ${this.projects.length} project(s) from JSON.`,
     );
@@ -106,15 +132,15 @@ export class ProjectManager {
     }
   }
 
-  getByChannelId(channelId: string): Project | undefined {
+  getByDiscordChannelId(channelId: string): Project | undefined {
     try {
-      const project = projectRepository.getByChannelId(channelId);
+      const project = projectRepository.getByDiscordChannelId(channelId);
       if (!project) return undefined;
       return mapDbProject(project);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error(
-        `[ProjectManager] Error getting project by channel id: ${errMsg}`,
+        `[ProjectManager] Error getting project by Discord channel id: ${errMsg}`,
       );
       return this.projects.find(
         (p) =>
@@ -124,14 +150,32 @@ export class ProjectManager {
     }
   }
 
-  updateChannelIds(
+  getBySlackChannelId(channelId: string): Project | undefined {
+    try {
+      const project = projectRepository.getBySlackChannelId(channelId);
+      if (!project) return undefined;
+      return mapDbProject(project);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[ProjectManager] Error getting project by Slack channel id: ${errMsg}`,
+      );
+      return this.projects.find(
+        (p) =>
+          p.slackDevelopmentChannelId === channelId ||
+          p.slackLinearIssuesChannelId === channelId,
+      );
+    }
+  }
+
+  updateDiscordChannelIds(
     projectId: string,
     categoryId: string,
     developmentChannelId: string,
     linearIssuesChannelId: string,
   ): void {
     try {
-      projectRepository.updateChannelIds(
+      projectRepository.updateDiscordChannelIds(
         projectId,
         categoryId,
         developmentChannelId,
@@ -143,12 +187,45 @@ export class ProjectManager {
         project.developmentChannelId = developmentChannelId;
         project.linearIssuesChannelId = linearIssuesChannelId;
         console.log(
-          `[ProjectManager] Updated channels for project "${projectId}" → cat: ${categoryId}, dev: ${developmentChannelId}, linear: ${linearIssuesChannelId}`,
+          `[ProjectManager] Updated Discord channels for project "${projectId}" → cat: ${categoryId}, dev: ${developmentChannelId}, linear: ${linearIssuesChannelId}`,
         );
       }
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[ProjectManager] Error updating channel ids: ${errMsg}`);
+      console.error(
+        `[ProjectManager] Error updating Discord channel ids: ${errMsg}`,
+      );
     }
   }
+
+  updateSlackChannelIds(
+    projectId: string,
+    slackDevelopmentChannelId: string,
+    slackLinearIssuesChannelId: string,
+  ): void {
+    try {
+      projectRepository.updateSlackChannelIds(
+        projectId,
+        slackDevelopmentChannelId,
+        slackLinearIssuesChannelId,
+      );
+      const project = this.projects.find((p) => p.id === projectId);
+      if (project) {
+        project.slackDevelopmentChannelId = slackDevelopmentChannelId;
+        project.slackLinearIssuesChannelId = slackLinearIssuesChannelId;
+        console.log(
+          `[ProjectManager] Updated Slack channels for project "${projectId}" → dev: ${slackDevelopmentChannelId}, linear: ${slackLinearIssuesChannelId}`,
+        );
+      }
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[ProjectManager] Error updating Slack channel ids: ${errMsg}`,
+      );
+    }
+  }
+}
+
+function isSlackChannelId(value: string): boolean {
+  return /^[CDG][A-Z0-9]+$/.test(value);
 }

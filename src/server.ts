@@ -4,32 +4,36 @@ import express, {
   NextFunction,
 } from "express";
 import { ProjectManager } from "./project-manager";
-import { DiscordBot } from "./discord-bot";
+import { DiscordBot } from "./bots/discord-bot";
 import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
 export function createServer(
   projectManager: ProjectManager,
-  bot: DiscordBot,
+  discordBot: DiscordBot | null,
 ): express.Application {
   const app = express();
 
   // Discord interactions webhook must receive raw body for signature verification.
-  app.post(
-    "/api/webhooks/discord",
-    express.raw({ type: "*/*" }),
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      try {
-        const webRequest = toWebRequest(req);
-        const webResponse = await bot.handleWebhook(webRequest);
-        await writeWebResponse(res, webResponse);
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ error: message });
-      }
-    },
-  );
+  if (discordBot) {
+    app.post(
+      "/api/webhooks/discord",
+      express.raw({ type: "*/*" }),
+      async (req: ExpressRequest, res: ExpressResponse) => {
+        try {
+          const webRequest = toWebRequest(req);
+          const webResponse = await discordBot.handleWebhook(webRequest);
+          await writeWebResponse(res, webResponse);
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          res.status(500).json({ error: message });
+        }
+      },
+    );
+  }
+
 
   app.use(express.json());
 
@@ -58,7 +62,7 @@ export function createServer(
     res.json({
       status: "ok",
       uptime: process.uptime(),
-      discord: bot.isReady() ? "connected" : "disconnected",
+      discord: discordBot?.isReady() ? "connected" : "disabled",
       projects: projectManager.getAll().length,
     });
   });
@@ -74,10 +78,12 @@ export function createServer(
     res.json({ ok: true, projects: projectManager.getAll().length });
   });
 
-  // Sync Discord channels (create any missing ones)
+  // Sync channels (create any missing ones)
   app.post("/sync", requireSecret, async (_req, res) => {
     try {
-      await bot.syncChannels();
+      if (discordBot) {
+        await discordBot.syncChannels();
+      }
       res.json({ ok: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -110,11 +116,12 @@ export function createServer(
       // Run OpenCode
       const result = await runOpenCode(prompt, project.folder);
 
-      // Optionally post result to Discord
-      if (project.developmentChannelId && bot.isReady()) {
+      // Optionally post result to Discord/Slack
+      const msg = formatResultForDiscord(result, project.name);
+
+      if (discordBot?.isReady() && project.developmentChannelId) {
         try {
-          const msg = formatResultForDiscord(result, project.name);
-          await bot.postToChannel(
+          await discordBot.postToChannel(
             project.developmentChannelId,
             `📡 *Triggered via HTTP*\n> ${prompt.slice(0, 200)}\n\n${msg}`,
           );

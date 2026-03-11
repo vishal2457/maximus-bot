@@ -1,7 +1,7 @@
-import { ProjectManager } from "./project-manager";
-import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
-import { MessageJob, Project } from "./types";
-import { jobRepository } from "./repositories/job-repository";
+import { ProjectManager } from "../project-manager";
+import { runOpenCode, formatResultForDiscord } from "../open-code-runner";
+import { MessageJob } from "../types";
+import { jobRepository } from "../repositories/job-repository";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -12,6 +12,14 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
+const CHANNEL_CACHE_TTL_MS = parsePositiveInt(
+  process.env.DISCORD_CHANNEL_CACHE_TTL_MS,
+  15 * 60 * 1000,
+);
+const THREAD_PARENT_CACHE_TTL_MS = parsePositiveInt(
+  process.env.DISCORD_THREAD_PARENT_CACHE_TTL_MS,
+  24 * 60 * 60 * 1000,
+);
 const GATEWAY_DURATION_MS = parsePositiveInt(
   process.env.DISCORD_GATEWAY_DURATION_MS,
   10 * 60 * 1000,
@@ -84,6 +92,26 @@ type ThreadHandle = {
   post(message: string): Promise<ChatSentMessage>;
 };
 
+type DiscordChannelSummary = {
+  id: string;
+  name: string;
+  type: number;
+  parent_id?: string | null;
+};
+
+type CachedChannelMeta = {
+  id: string;
+  name?: string;
+  type?: number;
+  parentId: string | null;
+  fetchedAt: number;
+};
+
+type CachedThreadParent = {
+  parentChannelId: string;
+  fetchedAt: number;
+};
+
 type ChatCtor = new (config: {
   userName: string;
   adapters: { discord: unknown };
@@ -114,6 +142,9 @@ export class DiscordBot {
   private isStopping = false;
   private gatewayLoopPromise: Promise<void> | null = null;
   private gatewayAbortController: AbortController | null = null;
+  private channelMetaCache = new Map<string, CachedChannelMeta>();
+  private threadParentCache = new Map<string, CachedThreadParent>();
+  private channelMetaInFlight = new Map<string, Promise<CachedChannelMeta | null>>();
 
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
@@ -186,19 +217,41 @@ export class DiscordBot {
   async syncChannels(): Promise<void> {
     console.log("[Discord] Syncing channels with projects.json...");
 
-    const channels = (await this.discordApi(
-      `/guilds/${GUILD_ID}/channels`,
-      "GET",
-    )) as Array<{
-      id: string;
-      name: string;
-      type: number;
-      parent_id?: string;
-    }>;
-
     const projects = this.projectManager.getAll();
+    const needsFullGuildLookup = projects.some(
+      (project) =>
+        !project.discordCategoryId || !project.developmentChannelId,
+    );
+    const channels: DiscordChannelSummary[] = needsFullGuildLookup
+      ? ((await this.discordApi(
+          `/guilds/${GUILD_ID}/channels`,
+          "GET",
+        )) as DiscordChannelSummary[])
+      : [];
+
+    for (const channel of channels) {
+      this.rememberChannelSummary(channel);
+    }
 
     for (const project of projects) {
+      const hasKnownChannelIds =
+        !!project.discordCategoryId && !!project.developmentChannelId;
+      if (hasKnownChannelIds) {
+        this.rememberChannelSummary({
+          id: project.discordCategoryId,
+          name: project.name,
+          type: 4,
+          parent_id: null,
+        });
+        this.rememberChannelSummary({
+          id: project.developmentChannelId,
+          name: "development",
+          type: 0,
+          parent_id: project.discordCategoryId,
+        });
+        continue;
+      }
+
       let category = channels.find(
         (c) => c.type === 4 && c.name === project.name && c.parent_id === null,
       );
@@ -215,6 +268,7 @@ export class DiscordBot {
 
         console.log(`[Discord] Created category: ${project.name}`);
         channels.push(category);
+        this.rememberChannelSummary(category);
       }
 
       const categoryChannels = channels.filter(
@@ -239,13 +293,14 @@ export class DiscordBot {
           id: string;
           name: string;
           type: number;
-          parent_id?: string;
+          parent_id?: string | null;
         };
 
         console.log(
           `[Discord] Created #development channel in ${project.name}`,
         );
         channels.push(developmentChannel);
+        this.rememberChannelSummary(developmentChannel);
 
         await this.postToChannel(
           developmentChannel.id,
@@ -257,51 +312,15 @@ export class DiscordBot {
         );
       }
 
-      let linearIssuesChannel = categoryChannels.find(
-        (c) => c.type === 0 && c.name === "linear-issues",
-      );
-
-      if (!linearIssuesChannel) {
-        linearIssuesChannel = (await this.discordApi(
-          `/guilds/${GUILD_ID}/channels`,
-          "POST",
-          {
-            name: "linear-issues",
-            type: 0,
-            parent_id: category.id,
-            topic: `Linear issue management for: ${project.linearProjectName || project.name}`,
-          },
-        )) as {
-          id: string;
-          name: string;
-          type: number;
-          parent_id?: string;
-        };
-
-        console.log(
-          `[Discord] Created #linear-issues channel in ${project.name}`,
-        );
-        channels.push(linearIssuesChannel);
-
-        await this.postToChannel(
-          linearIssuesChannel.id,
-          `**${project.name}** Linear issue management channel ready.\n` +
-            `Project: ${project.linearProjectName || "Not configured"}\n\n` +
-            `Send any message here to manage Linear issues via OpenCode. ` +
-            `Use threads to continue sessions. Prefix with \`#\` to leave a note.`,
-        );
-      }
-
       if (
         project.discordCategoryId !== category.id ||
-        project.developmentChannelId !== developmentChannel.id ||
-        project.linearIssuesChannelId !== linearIssuesChannel.id
+        project.developmentChannelId !== developmentChannel.id
       ) {
-        this.projectManager.updateChannelIds(
+        this.projectManager.updateDiscordChannelIds(
           project.id,
           category.id,
           developmentChannel.id,
-          linearIssuesChannel.id,
+          project.linearIssuesChannelId || "",
         );
       }
     }
@@ -361,7 +380,7 @@ export class DiscordBot {
       return;
     }
 
-    const project = this.projectManager.getByChannelId(rawChannelId);
+    const project = this.projectManager.getByDiscordChannelId(rawChannelId);
     if (!project) {
       console.log(`[Discord] No project found for channel ${rawChannelId}`);
       await thread.post(
@@ -465,6 +484,8 @@ export class DiscordBot {
         : `Starting new OpenCode session in \`${project.folder}\`...\n> ${prompt.slice(0, 200)}`,
     );
 
+    const typing = await this.startTypingInterval(thread.id);
+
     try {
       console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
       const result = await runOpenCode(prompt, project.folder);
@@ -486,6 +507,7 @@ export class DiscordBot {
 
       const reply = formatResultForDiscord(result, project.name);
       await thinkingMsg.edit(reply);
+      typing.stop();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[Discord] Error in job ${jobId}:`, errMsg);
@@ -497,6 +519,7 @@ export class DiscordBot {
 
       try {
         await thinkingMsg.edit(`Internal error: ${errMsg}`);
+        typing.stop();
       } catch (editErr: unknown) {
         console.error("[Discord] Failed to edit thinking message:", editErr);
       }
@@ -558,6 +581,8 @@ export class DiscordBot {
         : `Continuing OpenCode session...\n> ${prompt.slice(0, 200)}`,
     );
 
+    const typing = await this.startTypingInterval(thread.id);
+
     try {
       console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
       const result = await runOpenCode(prompt, project.folder, sessionId);
@@ -579,6 +604,7 @@ export class DiscordBot {
 
       const reply = formatResultForDiscord(result, project.name);
       await thinkingMsg.edit(reply);
+      typing.stop();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[Discord] Error in job ${jobId}:`, errMsg);
@@ -590,6 +616,7 @@ export class DiscordBot {
 
       try {
         await thinkingMsg.edit(`Internal error: ${errMsg}`);
+        typing.stop();
       } catch (editErr: unknown) {
         console.error("[Discord] Failed to edit thinking message:", editErr);
       }
@@ -621,13 +648,16 @@ export class DiscordBot {
     }
 
     if (threadId) {
+      const cachedParent = this.getThreadParentFromCache(threadId);
+      if (cachedParent) {
+        return cachedParent;
+      }
+
       try {
-        const thread = (await this.discordApi(
-          `/channels/${threadId}`,
-          "GET",
-        )) as { parent_id?: string } | null;
-        if (thread?.parent_id) {
-          return thread.parent_id;
+        const thread = await this.getChannelMetaCached(threadId);
+        if (thread?.parentId) {
+          this.rememberThreadParent(threadId, thread.parentId);
+          return thread.parentId;
         }
       } catch {
         // no-op
@@ -636,12 +666,9 @@ export class DiscordBot {
 
     if (channelId) {
       try {
-        const channel = (await this.discordApi(
-          `/channels/${channelId}`,
-          "GET",
-        )) as { parent_id?: string } | null;
-        if (channel?.parent_id) {
-          return channel.parent_id;
+        const channel = await this.getChannelMetaCached(channelId);
+        if (channel?.parentId) {
+          return channel.parentId;
         }
         return channelId;
       } catch {
@@ -686,11 +713,9 @@ export class DiscordBot {
       }
 
       try {
-        const channel = (await this.discordApi(
-          `/channels/${candidate}`,
-          "GET",
-        )) as { id: string; parent_id?: string } | null;
-        if (channel?.id && channel.parent_id) {
+        const channel = await this.getChannelMetaCached(candidate);
+        if (channel?.id && channel.parentId) {
+          this.rememberThreadParent(channel.id, channel.parentId);
           return channel.id;
         }
       } catch {
@@ -716,6 +741,90 @@ export class DiscordBot {
     } catch {
       return null;
     }
+  }
+
+  private rememberChannelSummary(channel: DiscordChannelSummary): void {
+    this.channelMetaCache.set(channel.id, {
+      id: channel.id,
+      name: channel.name,
+      type: channel.type,
+      parentId: channel.parent_id ?? null,
+      fetchedAt: Date.now(),
+    });
+  }
+
+  private rememberThreadParent(
+    threadId: string,
+    parentChannelId: string,
+  ): void {
+    this.threadParentCache.set(threadId, {
+      parentChannelId,
+      fetchedAt: Date.now(),
+    });
+  }
+
+  private getThreadParentFromCache(threadId: string): string | null {
+    const cached = this.threadParentCache.get(threadId);
+    if (!cached) {
+      return null;
+    }
+
+    if (Date.now() - cached.fetchedAt > THREAD_PARENT_CACHE_TTL_MS) {
+      this.threadParentCache.delete(threadId);
+      return null;
+    }
+
+    return cached.parentChannelId;
+  }
+
+  private async getChannelMetaCached(
+    channelId: string,
+  ): Promise<CachedChannelMeta | null> {
+    const cached = this.channelMetaCache.get(channelId);
+    if (cached && Date.now() - cached.fetchedAt <= CHANNEL_CACHE_TTL_MS) {
+      return cached;
+    }
+
+    const inFlight = this.channelMetaInFlight.get(channelId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        const channel = (await this.discordApi(
+          `/channels/${channelId}`,
+          "GET",
+        )) as {
+          id: string;
+          name?: string;
+          type?: number;
+          parent_id?: string | null;
+        } | null;
+
+        if (!channel?.id) {
+          return null;
+        }
+
+        const nextCached: CachedChannelMeta = {
+          id: channel.id,
+          name: channel.name,
+          type: channel.type,
+          parentId: channel.parent_id ?? null,
+          fetchedAt: Date.now(),
+        };
+        this.channelMetaCache.set(channel.id, nextCached);
+        if (nextCached.parentId) {
+          this.rememberThreadParent(channel.id, nextCached.parentId);
+        }
+        return nextCached;
+      } finally {
+        this.channelMetaInFlight.delete(channelId);
+      }
+    })();
+
+    this.channelMetaInFlight.set(channelId, fetchPromise);
+    return fetchPromise;
   }
 
   private startGatewayLoop(): void {
@@ -781,6 +890,28 @@ export class DiscordBot {
     }
   }
 
+  private async sendTyping(channelId: string): Promise<void> {
+    await this.discordApi(`/channels/${channelId}/typing`, "POST");
+  }
+
+  private async startTypingInterval(
+    channelId: string,
+    intervalMs = 5000,
+  ): Promise<{ stop: () => void }> {
+    await this.sendTyping(channelId);
+    const intervalId = setInterval(async () => {
+      try {
+        await this.sendTyping(channelId);
+      } catch {
+        clearInterval(intervalId);
+      }
+    }, intervalMs);
+
+    return {
+      stop: () => clearInterval(intervalId),
+    };
+  }
+
   private async discordApi(
     path: string,
     method: "GET" | "POST" | "PATCH",
@@ -830,6 +961,12 @@ export class DiscordBot {
         auto_archive_duration: 1440,
       },
     )) as { id: string };
+    this.rememberThreadParent(created.id, channelId);
+    this.channelMetaCache.set(created.id, {
+      id: created.id,
+      parentId: channelId,
+      fetchedAt: Date.now(),
+    });
 
     return {
       id: created.id,

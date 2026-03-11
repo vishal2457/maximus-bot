@@ -5,10 +5,6 @@ import fs from "fs";
 import os from "os";
 import * as schema from "./project.schema";
 
-const DB_PATH =
-  process.env.DB_PATH ||
-  path.join(os.homedir(), "maximus-bot-data", "maximus.db");
-
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let sqlite: Database.Database | null = null;
 
@@ -48,8 +44,27 @@ function initializeSchema() {
       discord_category_id TEXT,
       development_channel_id TEXT,
       linear_issues_channel_id TEXT,
+      slack_development_channel_id TEXT,
+      slack_linear_issues_channel_id TEXT,
       linear_project_id TEXT,
       linear_project_name TEXT
     )
   `);
+
+  ensureProjectsColumn("slack_development_channel_id", "TEXT");
+  ensureProjectsColumn("slack_linear_issues_channel_id", "TEXT");
+}
+
+function ensureProjectsColumn(name: string, type: string): void {
+  if (!sqlite) {
+    throw new Error("Database not initialized");
+  }
+
+  const columns = sqlite
+    .prepare("PRAGMA table_info(projects)")
+    .all() as Array<{ name: string }>;
+  const hasColumn = columns.some((column) => column.name === name);
+  if (!hasColumn) {
+    sqlite.exec(`ALTER TABLE projects ADD COLUMN ${name} ${type}`);
+  }
 }

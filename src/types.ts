@@ -6,6 +6,10 @@ export interface Project {
   discordCategoryId: string;
   developmentChannelId: string;
   linearIssuesChannelId: string;
+  slackDevelopmentChannelId: string;
+  slackLinearIssuesChannelId: string;
+  slackTeamId?: string;
+  slackCategoryId?: string;
   linearProjectId?: string;
   linearProjectName?: string;
 }
