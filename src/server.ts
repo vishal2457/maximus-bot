@@ -111,15 +111,16 @@ export function createServer(
       const result = await runOpenCode(prompt, project.folder);
 
       // Optionally post result to Discord
-      if (project.discordChannelId && bot.isReady()) {
+      if (project.developmentChannelId && bot.isReady()) {
         try {
           const msg = formatResultForDiscord(result, project.name);
           await bot.postToChannel(
-            project.discordChannelId,
+            project.developmentChannelId,
             `📡 *Triggered via HTTP*\n> ${prompt.slice(0, 200)}\n\n${msg}`,
           );
-        } catch (e) {
-          console.warn("[Server] Could not post to Discord:", e);
+        } catch (e: unknown) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          console.warn("[Server] Could not post to Discord:", errMsg);
         }
       }
 
@@ -153,8 +154,10 @@ function toWebRequest(req: ExpressRequest): Request {
   }
 
   const method = req.method.toUpperCase();
-  const body =
-    method === "GET" || method === "HEAD" ? undefined : getRawBody(req);
+  const body: BodyInit | null | undefined =
+    method === "GET" || method === "HEAD"
+      ? undefined
+      : (getRawBody(req) as BodyInit);
 
   return new Request(url, {
     method,

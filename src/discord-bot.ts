@@ -21,8 +21,6 @@ const GATEWAY_RESTART_DELAY_MS = parsePositiveInt(
   2_000,
 );
 
-const activeJobs = new Set<string>();
-
 type DiscordThreadParts = {
   guildId: string;
   channelId: string;

@@ -52,31 +52,4 @@ function initializeSchema() {
       linear_project_name TEXT
     )
   `);
-
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      channel_id TEXT NOT NULL,
-      thread_id TEXT NOT NULL,
-      session_id TEXT,
-      prompt TEXT NOT NULL,
-      author_tag TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      result TEXT,
-      error TEXT,
-      duration INTEGER,
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    )
-  `);
-}
-
-export function closeDb() {
-  if (sqlite) {
-    sqlite.close();
-    sqlite = null;
-    db = null;
-  }
 }

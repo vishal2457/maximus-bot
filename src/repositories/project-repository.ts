@@ -39,38 +39,6 @@ export class ProjectRepository {
     return result;
   }
 
-  getByDevelopmentChannelId(channelId: string): Project | undefined {
-    const db = getDb();
-    const result = db
-      .select()
-      .from(projects)
-      .where(eq(projects.developmentChannelId, channelId))
-      .get();
-    return result;
-  }
-
-  getByLinearIssuesChannelId(channelId: string): Project | undefined {
-    const db = getDb();
-    const result = db
-      .select()
-      .from(projects)
-      .where(eq(projects.linearIssuesChannelId, channelId))
-      .get();
-    return result;
-  }
-
-  create(project: NewProject): Project {
-    const db = getDb();
-    db.insert(projects).values(project).run();
-    return this.getById(project.id)!;
-  }
-
-  update(id: string, data: Partial<NewProject>): Project | undefined {
-    const db = getDb();
-    db.update(projects).set(data).where(eq(projects.id, id)).run();
-    return this.getById(id);
-  }
-
   updateChannelIds(
     id: string,
     categoryId: string,
@@ -86,11 +54,6 @@ export class ProjectRepository {
       })
       .where(eq(projects.id, id))
       .run();
-  }
-
-  delete(id: string): void {
-    const db = getDb();
-    db.delete(projects).where(eq(projects.id, id)).run();
   }
 
   seedFromJson(
