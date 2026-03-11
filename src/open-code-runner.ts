@@ -21,7 +21,11 @@ const SERVER_START_TIMEOUT_MS = parsePositiveInt(
 );
 const RUN_RETRY_COUNT = parsePositiveInt(
   process.env.OPENCODE_RUN_RETRY_COUNT,
-  1,
+  2,
+);
+const HEALTH_CHECK_TIMEOUT_MS = parsePositiveInt(
+  process.env.OPENCODE_HEALTH_CHECK_TIMEOUT_MS,
+  5_000,
 );
 
 const PERMISSION_MODE = normalizePermissionMode(
@@ -49,6 +53,7 @@ let runtime: OpenCodeRuntime | null = null;
 export async function runOpenCode(
   prompt: string,
   workingDir: string,
+  sessionId?: string,
 ): Promise<OpenCodeResult> {
   const start = Date.now();
 
@@ -86,7 +91,12 @@ export async function runOpenCode(
 
   for (let attempt = 0; attempt <= RUN_RETRY_COUNT; attempt += 1) {
     try {
-      return await runWithSdk(normalizedPrompt, resolvedDir.path, start);
+      return await runWithSdk(
+        normalizedPrompt,
+        resolvedDir.path,
+        start,
+        sessionId,
+      );
     } catch (error: unknown) {
       const canRetry = attempt < RUN_RETRY_COUNT;
       const duration = Date.now() - start;
@@ -123,21 +133,33 @@ async function runWithSdk(
   prompt: string,
   workingDir: string,
   start: number,
+  existingSessionId?: string,
 ): Promise<OpenCodeResult> {
+  console.log(`[OpenCode] runWithSdk called, workingDir=${workingDir}`);
   const opencode = await getRuntime();
 
-  const sessionResult = await opencode.client.session.create({
-    query: { directory: workingDir },
-  });
+  let sessionId: string;
 
-  if (!sessionResult.data) {
-    throw new Error(
-      formatRequestError("Failed to create session", sessionResult.error),
-    );
+  if (existingSessionId) {
+    console.log(`[OpenCode] Resuming session ${existingSessionId}`);
+    sessionId = existingSessionId;
+  } else {
+    console.log("[OpenCode] Creating new session...");
+    const sessionResult = await opencode.client.session.create({
+      query: { directory: workingDir },
+    });
+
+    if (!sessionResult.data) {
+      throw new Error(
+        formatRequestError("Failed to create session", sessionResult.error),
+      );
+    }
+
+    sessionId = sessionResult.data.id;
+    console.log(`[OpenCode] Session created: ${sessionId}`);
   }
 
-  const sessionId = sessionResult.data.id;
-
+  console.log(`[OpenCode] Sending prompt to session ${sessionId}...`);
   const promptResult = await opencode.client.session.prompt({
     path: { id: sessionId },
     query: { directory: workingDir },
@@ -153,6 +175,7 @@ async function runWithSdk(
     );
   }
 
+  console.log("[OpenCode] Prompt completed, formatting output...");
   const output = formatMessageParts(promptResult.data.parts);
   const assistantError = extractAssistantError(promptResult.data.info?.error);
   const fullOutput = output || assistantError || "(no output)";
@@ -165,6 +188,7 @@ async function runWithSdk(
     error: assistantError || undefined,
     exitCode: assistantError ? 1 : 0,
     duration,
+    sessionId,
   };
 }
 
@@ -276,11 +300,18 @@ function extractMessageFromObject(
 
 async function getRuntime(): Promise<OpenCodeRuntime> {
   if (runtime) {
-    return runtime;
+    const healthy = await checkRuntimeHealth(runtime);
+    if (healthy) {
+      console.log("[OpenCode] Reusing existing SDK server");
+      return runtime;
+    }
+    console.log("[OpenCode] Existing SDK server unhealthy, restarting...");
+    await resetRuntime();
   }
 
   if (!runtimePromise) {
     runtimePromise = (async () => {
+      console.log("[OpenCode] Starting SDK server...");
       const sdk = await loadSdk();
       const created = await sdk.createOpencode(buildServerOptions());
       runtime = created;
@@ -294,6 +325,27 @@ async function getRuntime(): Promise<OpenCodeRuntime> {
   } catch (error) {
     runtimePromise = null;
     throw error;
+  }
+}
+
+async function checkRuntimeHealth(rt: OpenCodeRuntime): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      HEALTH_CHECK_TIMEOUT_MS,
+    );
+
+    const response = await fetch(`${rt.server.url}/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch (error) {
+    console.warn("[OpenCode] Health check failed:", error);
+    return false;
   }
 }
 
