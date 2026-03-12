@@ -1,18 +1,4 @@
-export interface Project {
-  id: string;
-  name: string;
-  description: string;
-  folder: string;
-  discordCategoryId: string;
-  developmentChannelId: string;
-  linearIssuesChannelId: string;
-  slackDevelopmentChannelId: string;
-  slackLinearIssuesChannelId: string;
-  slackTeamId?: string;
-  slackCategoryId?: string;
-  linearProjectId?: string;
-  linearProjectName?: string;
-}
+
 
 export interface OpenCodeResult {
   success: boolean;

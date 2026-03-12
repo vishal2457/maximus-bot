@@ -1,42 +1,23 @@
 import fs from "fs";
 import path from "path";
-import { Project } from "./types";
 import { projectRepository } from "./repositories/project-repository";
 import { getDb } from "./db";
+import { type Project, type NewProject } from "./db/project.schema";
 import { logger } from "./shared/logger";
 
 const PROJECTS_FILE = process.env.PROJECTS_FILE || "./projects.json";
 
-type DbProject = {
-  id: string;
-  name: string;
-  description: string;
-  folder: string;
-  discordCategoryId: string | null;
-  developmentChannelId: string | null;
-  linearIssuesChannelId: string | null;
-  linearProjectId: string | null;
-  linearProjectName: string | null;
-};
-
-function mapDbProject(p: DbProject): Project {
-  const legacyDev = p.developmentChannelId || "";
-  const legacyLinear = p.linearIssuesChannelId || "";
-
+function mapDbProject(p: Project): Project {
   return {
     id: p.id,
     name: p.name,
     description: p.description,
     folder: p.folder,
     discordCategoryId: p.discordCategoryId || "",
-    developmentChannelId: legacyDev,
-    linearIssuesChannelId: legacyLinear,
-    slackDevelopmentChannelId: isSlackChannelId(legacyDev) ? legacyDev : "",
-    slackLinearIssuesChannelId: isSlackChannelId(legacyLinear)
-      ? legacyLinear
-      : "",
-    linearProjectId: p.linearProjectId || undefined,
-    linearProjectName: p.linearProjectName || undefined,
+    developmentChannelId: p.developmentChannelId || "",
+    linearIssuesChannelId: p.linearIssuesChannelId || "",
+    linearProjectId: p?.linearProjectId || "",
+    linearProjectName: p?.linearProjectName || "",
   };
 }
 
@@ -58,7 +39,7 @@ export class ProjectManager {
       fs.writeFileSync(this.filePath, JSON.stringify([], null, 2));
     }
     const raw = fs.readFileSync(this.filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Array<Partial<Project>>;
+    const parsed = JSON.parse(raw) as Project[];
     this.projects = parsed.map((project) => ({
       id: project.id || "",
       name: project.name || "",
@@ -67,12 +48,8 @@ export class ProjectManager {
       discordCategoryId: project.discordCategoryId || "",
       developmentChannelId: project.developmentChannelId || "",
       linearIssuesChannelId: project.linearIssuesChannelId || "",
-      slackDevelopmentChannelId: project.slackDevelopmentChannelId || "",
-      slackLinearIssuesChannelId: project.slackLinearIssuesChannelId || "",
-      slackTeamId: project.slackTeamId,
-      slackCategoryId: project.slackCategoryId,
-      linearProjectId: project.linearProjectId,
-      linearProjectName: project.linearProjectName,
+      linearProjectId: project.linearProjectId || "",
+      linearProjectName: project.linearProjectName || "",
     }));
     logger.info("Loaded projects from JSON", {
       count: this.projects.length,
@@ -183,14 +160,13 @@ export class ProjectManager {
     }
   }
 
-
   add(project: {
-    id: string;
-    name: string;
-    description: string;
-    folder: string;
-    linearProjectId?: string;
-    linearProjectName?: string;
+    id: NewProject["id"];
+    name: NewProject["name"];
+    description: NewProject["description"];
+    folder: NewProject["folder"];
+    linearProjectId?: NewProject["linearProjectId"];
+    linearProjectName?: NewProject["linearProjectName"];
   }): Project {
     const newProject: Project = {
       id: project.id,
@@ -200,10 +176,8 @@ export class ProjectManager {
       discordCategoryId: "",
       developmentChannelId: "",
       linearIssuesChannelId: "",
-      slackDevelopmentChannelId: "",
-      slackLinearIssuesChannelId: "",
-      linearProjectId: project.linearProjectId,
-      linearProjectName: project.linearProjectName,
+      linearProjectId: project.linearProjectId || "",
+      linearProjectName: project.linearProjectName || "",
     };
 
     this.projects.push(newProject);
@@ -228,10 +202,6 @@ export class ProjectManager {
       discordCategoryId: p.discordCategoryId || undefined,
       developmentChannelId: p.developmentChannelId || undefined,
       linearIssuesChannelId: p.linearIssuesChannelId || undefined,
-      slackDevelopmentChannelId: p.slackDevelopmentChannelId || undefined,
-      slackLinearIssuesChannelId: p.slackLinearIssuesChannelId || undefined,
-      slackTeamId: p.slackTeamId || undefined,
-      slackCategoryId: p.slackCategoryId || undefined,
       linearProjectId: p.linearProjectId || undefined,
       linearProjectName: p.linearProjectName || undefined,
     }));
@@ -241,8 +211,4 @@ export class ProjectManager {
       count: projectsToSave.length,
     });
   }
-}
-
-function isSlackChannelId(value: string): boolean {
-  return /^[CDG][A-Z0-9]+$/.test(value);
 }

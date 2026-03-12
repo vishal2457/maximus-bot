@@ -7,7 +7,6 @@ import {
 import type { OpencodeClient, ServerOptions } from "@opencode-ai/sdk/v2" with {
   "resolution-mode": "import",
 };
-import { OpenCodeResult } from "../types";
 import { logger } from "../shared/logger";
 
 // Re-export the types from base-sdk for compatibility
@@ -100,14 +99,7 @@ class OpencodeSdk extends BaseCodingSdk {
       process.env.OPENCODE_SERVER_START_TIMEOUT_MS,
       serverStartTimeoutMs,
     );
-    const RUN_RETRY_COUNT = this.parsePositiveInt(
-      process.env.OPENCODE_RUN_RETRY_COUNT,
-      retryCount,
-    );
-    const HEALTH_CHECK_TIMEOUT_MS = this.parsePositiveInt(
-      process.env.OPENCODE_HEALTH_CHECK_TIMEOUT_MS,
-      healthCheckTimeoutMs,
-    );
+
     const PERMISSION_MODE =
       this.normalizePermissionMode(process.env.OPENCODE_PERMISSION_MODE) ??
       permissionMode;

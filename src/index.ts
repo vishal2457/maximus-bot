@@ -12,8 +12,6 @@ async function main(): Promise<void> {
     process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN;
   if (!enableDiscord) {
     logger.error("No bot configured. Please configure at least one of:");
-    logger.error("Discord: DISCORD_BOT_TOKEN, DISCORD_GUILD_ID");
-    logger.error("Copy .env.example to .env and fill in the values.");
     process.exit(1);
   }
 

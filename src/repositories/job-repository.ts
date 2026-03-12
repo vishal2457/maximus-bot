@@ -1,8 +1,6 @@
 import { eq, desc, and, isNotNull } from "drizzle-orm";
 import { getDb } from "../db";
-import { jobs, type Job, type NewJob } from "../db/project.schema";
-
-type JobStatus = "pending" | "running" | "completed" | "failed";
+import { jobs, type Job, type NewJob } from "../db/job.schema";
 
 export class JobRepository {
   getByThreadId(threadId: string): Job | undefined {
@@ -51,7 +49,7 @@ export class JobRepository {
 
   updateStatus(
     id: string,
-    status: string,
+    status: NonNullable<NewJob["status"]>,
     extras?: Partial<NewJob>,
   ): Job | undefined {
     const db = getDb();

@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import * as schema from "./project.schema";
+import * as schema from "./schema";
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let sqlite: Database.Database | null = null;
@@ -44,27 +44,27 @@ function initializeSchema() {
       discord_category_id TEXT,
       development_channel_id TEXT,
       linear_issues_channel_id TEXT,
-      slack_development_channel_id TEXT,
-      slack_linear_issues_channel_id TEXT,
       linear_project_id TEXT,
       linear_project_name TEXT
     )
   `);
 
-  ensureProjectsColumn("slack_development_channel_id", "TEXT");
-  ensureProjectsColumn("slack_linear_issues_channel_id", "TEXT");
-}
-
-function ensureProjectsColumn(name: string, type: string): void {
-  if (!sqlite) {
-    throw new Error("Database not initialized");
-  }
-
-  const columns = sqlite.prepare("PRAGMA table_info(projects)").all() as Array<{
-    name: string;
-  }>;
-  const hasColumn = columns.some((column) => column.name === name);
-  if (!hasColumn) {
-    sqlite.exec(`ALTER TABLE projects ADD COLUMN ${name} ${type}`);
-  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      session_id TEXT,
+      prompt TEXT NOT NULL,
+      author_tag TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result TEXT,
+      error TEXT,
+      duration INTEGER,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
+    )
+  `);
 }

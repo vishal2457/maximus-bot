@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@chat-adapter/discord": "^4.19.0",
-    "@chat-adapter/slack": "^4.20.0",
     "@chat-adapter/state-memory": "^4.19.0",
     "@opencode-ai/sdk": "^1.2.24",
     "axios": "^1.6.2",

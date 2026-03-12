@@ -190,7 +190,7 @@ export function createServer(
       // Run OpenCode
       const result = await runOpenCode(prompt, project.folder);
 
-      // Optionally post result to Discord/Slack
+      // Optionally post result to Discord
       const msg = formatResultForDiscord(result, project.name);
 
       if (discordBot?.isReady() && project.developmentChannelId) {

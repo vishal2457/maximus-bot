@@ -11,6 +11,15 @@ import {
 import { MessageJob } from "../types";
 import { jobRepository } from "../repositories/job-repository";
 import { logger } from "../shared/logger";
+import {
+  DISCORD_API_BASE_URL,
+  DISCORD_CHANNEL_TYPE_CATEGORY,
+  DISCORD_CHANNEL_TYPE_TEXT,
+} from "../shared/constants";
+import {
+  getDevelopmentChannelName,
+  isLegacyDevelopmentChannelName,
+} from "../shared/discord-channel.util";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -19,7 +28,7 @@ const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const DISCORD_APPLICATION_ID = process.env.DISCORD_APPLICATION_ID || "";
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 
-const DISCORD_API_BASE = "https://discord.com/api/v10";
+const DISCORD_API_BASE = DISCORD_API_BASE_URL;
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 const SESSION_THREAD_TITLE_PREVIEW_LENGTH = 120;
 const PENDING_OPENCODE_INPUT_TIMEOUT_MS = parsePositiveInt(
@@ -305,27 +314,57 @@ export class DiscordBot {
     }
 
     for (const project of projects) {
-      const hasKnownChannelIds =
-        !!project.discordCategoryId && !!project.developmentChannelId;
-      if (hasKnownChannelIds) {
+      const expectedDevelopmentChannelName = getDevelopmentChannelName(
+        project.name,
+      );
+      const categoryId = project.discordCategoryId;
+      const developmentChannelId = project.developmentChannelId;
+      if (categoryId && developmentChannelId) {
         this.rememberChannelSummary({
-          id: project.discordCategoryId,
+          id: categoryId,
           name: project.name,
-          type: 4,
+          type: DISCORD_CHANNEL_TYPE_CATEGORY,
           parent_id: null,
         });
         this.rememberChannelSummary({
-          id: project.developmentChannelId,
-          name: "development",
-          type: 0,
-          parent_id: project.discordCategoryId,
+          id: developmentChannelId,
+          name: expectedDevelopmentChannelName,
+          type: DISCORD_CHANNEL_TYPE_TEXT,
+          parent_id: categoryId,
         });
+
+        const currentDevelopmentChannel =
+          await this.getChannelMetaCached(developmentChannelId);
+        if (
+          currentDevelopmentChannel?.name &&
+          currentDevelopmentChannel.name !== expectedDevelopmentChannelName
+        ) {
+          await this.discordApi(`/channels/${developmentChannelId}`, "PATCH", {
+            name: expectedDevelopmentChannelName,
+          });
+          this.channelMetaCache.set(developmentChannelId, {
+            ...currentDevelopmentChannel,
+            name: expectedDevelopmentChannelName,
+            fetchedAt: Date.now(),
+          });
+          logger.info("Renamed Discord development channel", {
+            projectId: project.id,
+            projectName: project.name,
+            channelId: developmentChannelId,
+            from: currentDevelopmentChannel.name,
+            to: expectedDevelopmentChannelName,
+          });
+        }
         continue;
       }
 
-      let category = channels.find(
-        (c) => c.type === 4 && c.name === project.name && c.parent_id === null,
-      );
+      let category = channels.find((c) => {
+        return (
+          c.type === DISCORD_CHANNEL_TYPE_CATEGORY &&
+          c.name === project.name &&
+          c.parent_id === null
+        );
+      });
 
       if (!category) {
         category = (await this.discordApi(
@@ -333,7 +372,7 @@ export class DiscordBot {
           "POST",
           {
             name: project.name,
-            type: 4,
+            type: DISCORD_CHANNEL_TYPE_CATEGORY,
           },
         )) as { id: string; name: string; type: number };
 
@@ -349,17 +388,21 @@ export class DiscordBot {
         (c) => c.parent_id === category!.id,
       );
 
-      let developmentChannel = categoryChannels.find(
-        (c) => c.type === 0 && c.name === "development",
-      );
+      let developmentChannel = categoryChannels.find((c) => {
+        return (
+          c.type === DISCORD_CHANNEL_TYPE_TEXT &&
+          (c.name === expectedDevelopmentChannelName ||
+            isLegacyDevelopmentChannelName(c.name))
+        );
+      });
 
       if (!developmentChannel) {
         developmentChannel = (await this.discordApi(
           `/guilds/${GUILD_ID}/channels`,
           "POST",
           {
-            name: "development",
-            type: 0,
+            name: expectedDevelopmentChannelName,
+            type: DISCORD_CHANNEL_TYPE_TEXT,
             parent_id: category.id,
             topic: `OpenCode coding sessions for: ${project.description}`,
           },
@@ -387,6 +430,21 @@ export class DiscordBot {
             `Use threads to continue sessions, and mention the bot there too. ` +
             `Prefix with \`#\` to leave a note.`,
         );
+      } else if (developmentChannel.name !== expectedDevelopmentChannelName) {
+        await this.discordApi(`/channels/${developmentChannel.id}`, "PATCH", {
+          name: expectedDevelopmentChannelName,
+        });
+        developmentChannel = {
+          ...developmentChannel,
+          name: expectedDevelopmentChannelName,
+        };
+        this.rememberChannelSummary(developmentChannel);
+        logger.info("Renamed Discord development channel", {
+          projectId: project.id,
+          projectName: project.name,
+          channelId: developmentChannel.id,
+          to: expectedDevelopmentChannelName,
+        });
       }
 
       if (

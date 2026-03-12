@@ -56,14 +56,17 @@ export class ProjectRepository {
       .run();
   }
 
-  create(project: {
-    id: string;
-    name: string;
-    description: string;
-    folder: string;
-    linearProjectId?: string;
-    linearProjectName?: string;
-  }): Project {
+  create(
+    project: Pick<
+      NewProject,
+      | "id"
+      | "name"
+      | "description"
+      | "folder"
+      | "linearProjectId"
+      | "linearProjectName"
+    >,
+  ): Project {
     const db = getDb();
     db.insert(projects)
       .values({
@@ -81,19 +84,7 @@ export class ProjectRepository {
     return this.getById(project.id)!;
   }
 
-  seedFromJson(
-    jsonProjects: Array<{
-      id: string;
-      name: string;
-      description: string;
-      folder: string;
-      discordCategoryId?: string;
-      developmentChannelId?: string;
-      linearIssuesChannelId?: string;
-      linearProjectId?: string;
-      linearProjectName?: string;
-    }>,
-  ): void {
+  seedFromJson(jsonProjects: Project[]): void {
     const db = getDb();
     const existing = this.getAll();
 
