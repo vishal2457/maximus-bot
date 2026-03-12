@@ -3,6 +3,7 @@ import path from "path";
 import { Project } from "./types";
 import { projectRepository } from "./repositories/project-repository";
 import { getDb } from "./db";
+import { logger } from "./shared/logger";
 
 const PROJECTS_FILE = process.env.PROJECTS_FILE || "./projects.json";
 
@@ -14,8 +15,6 @@ type DbProject = {
   discordCategoryId: string | null;
   developmentChannelId: string | null;
   linearIssuesChannelId: string | null;
-  slackDevelopmentChannelId: string | null;
-  slackLinearIssuesChannelId: string | null;
   linearProjectId: string | null;
   linearProjectName: string | null;
 };
@@ -23,8 +22,6 @@ type DbProject = {
 function mapDbProject(p: DbProject): Project {
   const legacyDev = p.developmentChannelId || "";
   const legacyLinear = p.linearIssuesChannelId || "";
-  const slackDev = p.slackDevelopmentChannelId || "";
-  const slackLinear = p.slackLinearIssuesChannelId || "";
 
   return {
     id: p.id,
@@ -34,10 +31,10 @@ function mapDbProject(p: DbProject): Project {
     discordCategoryId: p.discordCategoryId || "",
     developmentChannelId: legacyDev,
     linearIssuesChannelId: legacyLinear,
-    // Backward-compatible fallback for pre-migration data.
-    slackDevelopmentChannelId: slackDev || (isSlackChannelId(legacyDev) ? legacyDev : ""),
-    slackLinearIssuesChannelId:
-      slackLinear || (isSlackChannelId(legacyLinear) ? legacyLinear : ""),
+    slackDevelopmentChannelId: isSlackChannelId(legacyDev) ? legacyDev : "",
+    slackLinearIssuesChannelId: isSlackChannelId(legacyLinear)
+      ? legacyLinear
+      : "",
     linearProjectId: p.linearProjectId || undefined,
     linearProjectName: p.linearProjectName || undefined,
   };
@@ -55,9 +52,9 @@ export class ProjectManager {
 
   private loadFromJson(): void {
     if (!fs.existsSync(this.filePath)) {
-      console.warn(
-        `[ProjectManager] projects.json not found at ${this.filePath}, creating empty file.`,
-      );
+      logger.warn("projects.json not found, creating empty file", {
+        filePath: this.filePath,
+      });
       fs.writeFileSync(this.filePath, JSON.stringify([], null, 2));
     }
     const raw = fs.readFileSync(this.filePath, "utf-8");
@@ -77,9 +74,10 @@ export class ProjectManager {
       linearProjectId: project.linearProjectId,
       linearProjectName: project.linearProjectName,
     }));
-    console.log(
-      `[ProjectManager] Loaded ${this.projects.length} project(s) from JSON.`,
-    );
+    logger.info("Loaded projects from JSON", {
+      count: this.projects.length,
+      filePath: this.filePath,
+    });
   }
 
   private seedDatabase(): void {
@@ -88,19 +86,19 @@ export class ProjectManager {
       const dbProjects = projectRepository.getAll();
 
       if (dbProjects.length === 0 && this.projects.length > 0) {
-        console.log(
-          `[ProjectManager] Seeding database with ${this.projects.length} project(s) from JSON...`,
-        );
+        logger.info("Seeding database from JSON", {
+          count: this.projects.length,
+        });
         projectRepository.seedFromJson(this.projects);
-        console.log(`[ProjectManager] Database seeded successfully.`);
+        logger.info("Database seeded successfully");
       } else if (dbProjects.length > 0) {
-        console.log(
-          `[ProjectManager] Database already contains ${dbProjects.length} project(s).`,
-        );
+        logger.info("Database already contains projects", {
+          count: dbProjects.length,
+        });
       }
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[ProjectManager] Error seeding database: ${errMsg}`);
+      logger.error("Error seeding database", { error: errMsg });
     }
   }
 
@@ -115,7 +113,7 @@ export class ProjectManager {
       return dbProjects.map(mapDbProject);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[ProjectManager] Error getting all projects: ${errMsg}`);
+      logger.error("Error getting all projects", { error: errMsg });
       return this.projects;
     }
   }
@@ -127,7 +125,7 @@ export class ProjectManager {
       return mapDbProject(project);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`[ProjectManager] Error getting project by id: ${errMsg}`);
+      logger.error("Error getting project by id", { id, error: errMsg });
       return this.projects.find((p) => p.id === id);
     }
   }
@@ -139,31 +137,14 @@ export class ProjectManager {
       return mapDbProject(project);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[ProjectManager] Error getting project by Discord channel id: ${errMsg}`,
-      );
+      logger.error("Error getting project by Discord channel id", {
+        channelId,
+        error: errMsg,
+      });
       return this.projects.find(
         (p) =>
           p.developmentChannelId === channelId ||
           p.linearIssuesChannelId === channelId,
-      );
-    }
-  }
-
-  getBySlackChannelId(channelId: string): Project | undefined {
-    try {
-      const project = projectRepository.getBySlackChannelId(channelId);
-      if (!project) return undefined;
-      return mapDbProject(project);
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[ProjectManager] Error getting project by Slack channel id: ${errMsg}`,
-      );
-      return this.projects.find(
-        (p) =>
-          p.slackDevelopmentChannelId === channelId ||
-          p.slackLinearIssuesChannelId === channelId,
       );
     }
   }
@@ -186,43 +167,79 @@ export class ProjectManager {
         project.discordCategoryId = categoryId;
         project.developmentChannelId = developmentChannelId;
         project.linearIssuesChannelId = linearIssuesChannelId;
-        console.log(
-          `[ProjectManager] Updated Discord channels for project "${projectId}" → cat: ${categoryId}, dev: ${developmentChannelId}, linear: ${linearIssuesChannelId}`,
-        );
+        logger.info("Updated Discord channel IDs", {
+          projectId,
+          categoryId,
+          developmentChannelId,
+          linearIssuesChannelId,
+        });
       }
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[ProjectManager] Error updating Discord channel ids: ${errMsg}`,
-      );
+      logger.error("Error updating Discord channel IDs", {
+        projectId,
+        error: errMsg,
+      });
     }
   }
 
-  updateSlackChannelIds(
-    projectId: string,
-    slackDevelopmentChannelId: string,
-    slackLinearIssuesChannelId: string,
-  ): void {
-    try {
-      projectRepository.updateSlackChannelIds(
-        projectId,
-        slackDevelopmentChannelId,
-        slackLinearIssuesChannelId,
-      );
-      const project = this.projects.find((p) => p.id === projectId);
-      if (project) {
-        project.slackDevelopmentChannelId = slackDevelopmentChannelId;
-        project.slackLinearIssuesChannelId = slackLinearIssuesChannelId;
-        console.log(
-          `[ProjectManager] Updated Slack channels for project "${projectId}" → dev: ${slackDevelopmentChannelId}, linear: ${slackLinearIssuesChannelId}`,
-        );
-      }
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[ProjectManager] Error updating Slack channel ids: ${errMsg}`,
-      );
-    }
+
+  add(project: {
+    id: string;
+    name: string;
+    description: string;
+    folder: string;
+    linearProjectId?: string;
+    linearProjectName?: string;
+  }): Project {
+    const newProject: Project = {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      folder: project.folder,
+      discordCategoryId: "",
+      developmentChannelId: "",
+      linearIssuesChannelId: "",
+      slackDevelopmentChannelId: "",
+      slackLinearIssuesChannelId: "",
+      linearProjectId: project.linearProjectId,
+      linearProjectName: project.linearProjectName,
+    };
+
+    this.projects.push(newProject);
+    this.saveToJson();
+
+    projectRepository.create(project);
+
+    logger.info("Added new project", {
+      projectId: project.id,
+      projectName: project.name,
+    });
+
+    return newProject;
+  }
+
+  private saveToJson(): void {
+    const projectsToSave = this.projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      folder: p.folder,
+      discordCategoryId: p.discordCategoryId || undefined,
+      developmentChannelId: p.developmentChannelId || undefined,
+      linearIssuesChannelId: p.linearIssuesChannelId || undefined,
+      slackDevelopmentChannelId: p.slackDevelopmentChannelId || undefined,
+      slackLinearIssuesChannelId: p.slackLinearIssuesChannelId || undefined,
+      slackTeamId: p.slackTeamId || undefined,
+      slackCategoryId: p.slackCategoryId || undefined,
+      linearProjectId: p.linearProjectId || undefined,
+      linearProjectName: p.linearProjectName || undefined,
+    }));
+
+    fs.writeFileSync(this.filePath, JSON.stringify(projectsToSave, null, 2));
+    logger.info("Saved projects to JSON", {
+      count: projectsToSave.length,
+    });
   }
 }
 

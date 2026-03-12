@@ -6,6 +6,9 @@ import express, {
 import { ProjectManager } from "./project-manager";
 import { DiscordBot } from "./bots/discord-bot";
 import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
+import { logger } from "./shared/logger";
+import * as fs from "fs";
+import * as path from "path";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -33,7 +36,6 @@ export function createServer(
       },
     );
   }
-
 
   app.use(express.json());
 
@@ -67,9 +69,81 @@ export function createServer(
     });
   });
 
+  // Log viewer endpoint
+  app.get("/logs/:type", async (_req, res) => {
+    const { type } = _req.params;
+    if (!["debug", "error"].includes(type)) {
+      res
+        .status(400)
+        .json({ error: "Invalid log type. Use 'debug' or 'error'." });
+      return;
+    }
+
+    try {
+      const logDir = path.join(__dirname, "..", "logs", type);
+      const files = fs.readdirSync(logDir);
+      const logFiles = files.filter((file) => file.endsWith(".log"));
+      if (logFiles.length === 0) {
+        res.status(404).json({ error: `No log files found for type ${type}` });
+        return;
+      }
+      // Sort by filename (assuming YYYY-MM-DD.log format) to get the latest
+      logFiles.sort().reverse();
+      const latestLogFile = logFiles[0];
+      const logPath = path.join(logDir, latestLogFile);
+      const logContent = fs.readFileSync(logPath, "utf8");
+      res.setHeader("Content-Type", "text/plain");
+      res.send(logContent);
+    } catch (error) {
+      console.error("Error reading log file:", error);
+      res.status(500).json({ error: "Failed to read log file" });
+    }
+  });
+
   // List all projects
   app.get("/projects", (_req, res) => {
     res.json(projectManager.getAll());
+  });
+
+  // Create new project (unauthenticated)
+  app.post("/projects", async (req: ExpressRequest, res: ExpressResponse) => {
+    const { name, description, folder, linearProjectId, linearProjectName } =
+      req.body as {
+        name?: string;
+        description?: string;
+        folder?: string;
+        linearProjectId?: string;
+        linearProjectName?: string;
+      };
+
+    if (!name || !description || !folder) {
+      res
+        .status(400)
+        .json({ error: "name, description, and folder are required" });
+      return;
+    }
+
+    const id = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+    try {
+      const newProject = projectManager.add({
+        id,
+        name,
+        description,
+        folder,
+        linearProjectId,
+        linearProjectName,
+      });
+
+      if (discordBot) {
+        await discordBot.syncChannels();
+      }
+
+      res.status(201).json(newProject);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
   });
 
   // Reload projects.json from disk
@@ -111,7 +185,7 @@ export function createServer(
         return;
       }
 
-      console.log(`[Server] /run/${projectId} triggered via HTTP`);
+      logger.info("OpenCode run triggered via HTTP", { projectId });
 
       // Run OpenCode
       const result = await runOpenCode(prompt, project.folder);
@@ -127,7 +201,10 @@ export function createServer(
           );
         } catch (e: unknown) {
           const errMsg = e instanceof Error ? e.message : String(e);
-          console.warn("[Server] Could not post to Discord:", errMsg);
+          logger.warn("Could not post run result to Discord", {
+            projectId,
+            error: errMsg,
+          });
         }
       }
 
@@ -161,10 +238,10 @@ function toWebRequest(req: ExpressRequest): Request {
   }
 
   const method = req.method.toUpperCase();
-  const body: BodyInit | null | undefined =
+  const body: any =
     method === "GET" || method === "HEAD"
       ? undefined
-      : (getRawBody(req) as BodyInit);
+      : (getRawBody(req) as any);
 
   return new Request(url, {
     method,

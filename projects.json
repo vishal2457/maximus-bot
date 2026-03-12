@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "id": "proj_1773299681628_qvz1f1dbh",
+    "name": "turbo-derived",
+    "description": "monorepo of turbo derived",
+    "folder": "/Users/vishalacharya/Documents/derived/main-derived/turbo-derived",
+    "linearProjectName": "DERIVED"
+  }
+]

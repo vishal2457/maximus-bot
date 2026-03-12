@@ -37,27 +37,27 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Variable                           | Description                                                                                     |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`                | Bot token from [Discord Developer Portal](https://discord.com/developers/applications)          |
-| `DISCORD_TOKEN`                    | Backward-compatible alias for `DISCORD_BOT_TOKEN`                                               |
-| `DISCORD_GUILD_ID`                 | Right-click your server → Copy Server ID                                                        |
-| `DISCORD_CATEGORY_NAME`            | Name of the category to create channels under (default: `OpenCode Projects`)                    |
-| `DISCORD_APPLICATION_ID`           | Discord application ID                                                                          |
-| `DISCORD_PUBLIC_KEY`               | Discord public key for interaction signature verification                                       |
-| `DISCORD_WEBHOOK_URL`              | Optional URL used by gateway forward mode (example: `https://your-domain/api/webhooks/discord`) |
-| `DISCORD_GATEWAY_DURATION_MS`      | Gateway listener duration per cycle in ms (default: `600000`)                                   |
-| `DISCORD_GATEWAY_RESTART_DELAY_MS` | Delay before restarting gateway listener in ms (default: `2000`)                                |
-| `PORT`                             | Express server port (default: `3000`)                                                           |
-| `WEBHOOK_SECRET`                   | Secret for protecting HTTP endpoints                                                            |
-| `OPENCODE_PERMISSION_MODE`         | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`). In `ask` mode, Discord users can approve in-thread. |
-| `OPENCODE_RUN_TIMEOUT_MS`          | Per-run timeout in milliseconds (default: `300000`)                                             |
-| `OPENCODE_SERVER_START_TIMEOUT_MS` | OpenCode server startup timeout in milliseconds (default: `30000`)                              |
-| `OPENCODE_RUN_RETRY_COUNT`         | Number of retries after a failed run (default: `1`)                                             |
-| `OPENCODE_MAX_PROMPT_LENGTH`       | Maximum accepted prompt length (default: `8000`)                                                |
-| `OPENCODE_MAX_OUTPUT_LENGTH`       | Output cap before truncation (default: `1800`)                                                  |
-| `PENDING_OPENCODE_INPUT_TIMEOUT_MS` | How long Discord approval/question prompts stay open before expiring (default: `900000`)      |
-| `PROJECTS_FILE`                    | Path to projects.json (default: `./projects.json`)                                              |
+| Variable                            | Description                                                                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`                 | Bot token from [Discord Developer Portal](https://discord.com/developers/applications)                                        |
+| `DISCORD_TOKEN`                     | Backward-compatible alias for `DISCORD_BOT_TOKEN`                                                                             |
+| `DISCORD_GUILD_ID`                  | Right-click your server → Copy Server ID                                                                                      |
+| `DISCORD_CATEGORY_NAME`             | Name of the category to create channels under (default: `OpenCode Projects`)                                                  |
+| `DISCORD_APPLICATION_ID`            | Discord application ID                                                                                                        |
+| `DISCORD_PUBLIC_KEY`                | Discord public key for interaction signature verification                                                                     |
+| `DISCORD_WEBHOOK_URL`               | Optional URL used by gateway forward mode (example: `https://your-domain/api/webhooks/discord`)                               |
+| `DISCORD_GATEWAY_DURATION_MS`       | Gateway listener duration per cycle in ms (default: `600000`)                                                                 |
+| `DISCORD_GATEWAY_RESTART_DELAY_MS`  | Delay before restarting gateway listener in ms (default: `2000`)                                                              |
+| `PORT`                              | Express server port (default: `3000`)                                                                                         |
+| `WEBHOOK_SECRET`                    | Secret for protecting HTTP endpoints                                                                                          |
+| `OPENCODE_PERMISSION_MODE`          | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`). In `ask` mode, Discord users can approve in-thread. |
+| `OPENCODE_RUN_TIMEOUT_MS`           | Per-run timeout in milliseconds (default: `300000`)                                                                           |
+| `OPENCODE_SERVER_START_TIMEOUT_MS`  | OpenCode server startup timeout in milliseconds (default: `30000`)                                                            |
+| `OPENCODE_RUN_RETRY_COUNT`          | Number of retries after a failed run (default: `1`)                                                                           |
+| `OPENCODE_MAX_PROMPT_LENGTH`        | Maximum accepted prompt length (default: `8000`)                                                                              |
+| `OPENCODE_MAX_OUTPUT_LENGTH`        | Output cap before truncation (default: `1800`)                                                                                |
+| `PENDING_OPENCODE_INPUT_TIMEOUT_MS` | How long Discord approval/question prompts stay open before expiring (default: `900000`)                                      |
+| `PROJECTS_FILE`                     | Path to projects.json (default: `./projects.json`)                                                                            |
 
 ### 3. Discord Application Setup
 

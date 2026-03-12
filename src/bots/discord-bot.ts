@@ -1,5 +1,6 @@
 import { ProjectManager } from "../project-manager";
 import {
+  abortSession,
   formatResultForDiscord,
   type OpenCodeInteractionHandler,
   type OpenCodePermissionReply,
@@ -9,6 +10,7 @@ import {
 } from "../open-code-runner";
 import { MessageJob } from "../types";
 import { jobRepository } from "../repositories/job-repository";
+import { logger } from "../shared/logger";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -148,6 +150,19 @@ type PendingQuestionInput = {
 
 type PendingOpenCodeInput = PendingPermissionInput | PendingQuestionInput;
 
+type TypingHandle = {
+  stop(): void;
+};
+
+type ActiveThreadRun = {
+  jobId: string;
+  projectFolder: string;
+  sessionId: string | null;
+  controller: AbortController;
+  typing: TypingHandle;
+  abortRequested: boolean;
+};
+
 type ChatSdkModule = {
   Chat: ChatCtor;
 };
@@ -174,8 +189,22 @@ export class DiscordBot {
   private gatewayAbortController: AbortController | null = null;
   private channelMetaCache = new Map<string, CachedChannelMeta>();
   private threadParentCache = new Map<string, CachedThreadParent>();
-  private channelMetaInFlight = new Map<string, Promise<CachedChannelMeta | null>>();
+  private channelMetaInFlight = new Map<
+    string,
+    Promise<CachedChannelMeta | null>
+  >();
   private pendingOpenCodeInputs = new Map<string, PendingOpenCodeInput>();
+  private pendingAbortConfirmations = new Map<
+    string,
+    {
+      jobId: string;
+      sessionId: string | null;
+      projectFolder: string;
+      resolve(confirmed: boolean): void;
+      expiresAt: number;
+    }
+  >();
+  private activeThreadRuns = new Map<string, ActiveThreadRun>();
 
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
@@ -202,7 +231,7 @@ export class DiscordBot {
     this.isInitialized = true;
     this.isStopping = false;
 
-    console.log("[Discord] Chat SDK initialized.");
+    logger.info("Discord chat SDK initialized");
 
     await this.syncChannels();
     this.startGatewayLoop();
@@ -215,6 +244,13 @@ export class DiscordBot {
     for (const [threadId, pending] of this.pendingOpenCodeInputs.entries()) {
       this.pendingOpenCodeInputs.delete(threadId);
       pending.reject(new Error("Discord bot is shutting down."));
+    }
+
+    for (const [threadId, activeRun] of this.activeThreadRuns.entries()) {
+      activeRun.abortRequested = true;
+      activeRun.typing.stop();
+      activeRun.controller.abort();
+      this.activeThreadRuns.delete(threadId);
     }
 
     if (this.gatewayAbortController) {
@@ -238,7 +274,7 @@ export class DiscordBot {
     return bot.webhooks.discord(request, {
       waitUntil: (task) => {
         task.catch((error: unknown) => {
-          console.error("[Discord] Webhook background task failed:", error);
+          logger.error("Discord webhook background task failed", { error });
         });
       },
     });
@@ -251,12 +287,11 @@ export class DiscordBot {
   }
 
   async syncChannels(): Promise<void> {
-    console.log("[Discord] Syncing channels with projects.json...");
+    logger.info("Syncing Discord channels with projects");
 
     const projects = this.projectManager.getAll();
     const needsFullGuildLookup = projects.some(
-      (project) =>
-        !project.discordCategoryId || !project.developmentChannelId,
+      (project) => !project.discordCategoryId || !project.developmentChannelId,
     );
     const channels: DiscordChannelSummary[] = needsFullGuildLookup
       ? ((await this.discordApi(
@@ -302,7 +337,10 @@ export class DiscordBot {
           },
         )) as { id: string; name: string; type: number };
 
-        console.log(`[Discord] Created category: ${project.name}`);
+        logger.info("Created Discord category", {
+          projectId: project.id,
+          projectName: project.name,
+        });
         channels.push(category);
         this.rememberChannelSummary(category);
       }
@@ -332,9 +370,11 @@ export class DiscordBot {
           parent_id?: string | null;
         };
 
-        console.log(
-          `[Discord] Created #development channel in ${project.name}`,
-        );
+        logger.info("Created Discord development channel", {
+          projectId: project.id,
+          projectName: project.name,
+          channelId: developmentChannel.id,
+        });
         channels.push(developmentChannel);
         this.rememberChannelSummary(developmentChannel);
 
@@ -362,9 +402,9 @@ export class DiscordBot {
       }
     }
 
-    console.log(
-      `[Discord] Sync complete. ${projects.length} project category(ies) ready.`,
-    );
+    logger.info("Discord sync complete", {
+      projectCount: projects.length,
+    });
   }
 
   private async ensureBot(): Promise<ChatBotLike> {
@@ -404,22 +444,26 @@ export class DiscordBot {
     thread: ChatThread,
     message: ChatMessage,
   ): Promise<void> {
-    console.log(
-      `[Discord] Processing message from ${message.author.fullName || message.author.userName}: ${message.text.slice(0, 100)}...`,
-    );
+    logger.info("Processing Discord message", {
+      author: message.author.fullName || message.author.userName,
+      threadId: message.threadId,
+      preview: message.text.slice(0, 100),
+    });
 
     const rawChannelId = await this.resolveChannelId(
       thread.channelId,
       message.threadId,
     );
     if (!rawChannelId) {
-      console.log("[Discord] Could not resolve channel ID, skipping");
+      logger.warn("Could not resolve Discord channel ID, skipping message");
       return;
     }
 
     const project = this.projectManager.getByDiscordChannelId(rawChannelId);
     if (!project) {
-      console.log(`[Discord] No project found for channel ${rawChannelId}`);
+      logger.warn("No project found for Discord channel", {
+        channelId: rawChannelId,
+      });
       await thread.post(
         "This channel is not authorized to access any workspace. Please contact the bot administrator to configure project access for this channel.",
       );
@@ -431,9 +475,11 @@ export class DiscordBot {
       return;
     }
 
-    console.log(
-      `[Discord] Routing to project "${project.name}" at ${project.folder}`,
-    );
+    logger.info("Routing message to project workspace", {
+      projectId: project.id,
+      projectName: project.name,
+      folder: project.folder,
+    });
 
     const isLinearChannel = rawChannelId === project.linearIssuesChannelId;
     const resolvedThreadId = await this.resolveThreadId(
@@ -444,7 +490,22 @@ export class DiscordBot {
 
     if (
       !isNewThread &&
-      (await this.tryHandlePendingOpenCodeInput(thread, resolvedThreadId, prompt))
+      (await this.tryHandlePendingOpenCodeInput(
+        thread,
+        resolvedThreadId,
+        prompt,
+      ))
+    ) {
+      return;
+    }
+
+    if (
+      !isNewThread &&
+      (await this.tryHandlePendingAbortConfirmation(
+        thread,
+        resolvedThreadId,
+        prompt,
+      ))
     ) {
       return;
     }
@@ -500,13 +561,16 @@ export class DiscordBot {
 
     const project = this.projectManager.getById(projectId);
     if (!project) {
-      console.log(`[Discord] Project not found: ${projectId}`);
+      logger.warn("Project not found for new session", { projectId });
       return;
     }
 
-    console.log(
-      `[Discord] Starting new session for ${authorTag} in project "${project.name}"`,
-    );
+    logger.info("Starting new Discord OpenCode session", {
+      projectId,
+      projectName: project.name,
+      authorTag,
+      threadId,
+    });
 
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     jobRepository.create({
@@ -529,50 +593,72 @@ export class DiscordBot {
     );
 
     const typing = await this.startTypingInterval(threadId);
+    const controller = new AbortController();
+    this.activeThreadRuns.set(threadId, {
+      jobId,
+      projectFolder: project.folder,
+      sessionId: null,
+      controller,
+      typing,
+      abortRequested: false,
+    });
 
     try {
-      console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
+      logger.info("Calling runOpenCode", { jobId, threadId, projectId });
       const result = await runOpenCode(
         prompt,
         project.folder,
         undefined,
         this.createOpenCodeInteractionHandler(thread, threadId),
+        controller.signal,
       );
-      console.log(
-        `[Discord] runOpenCode completed for job ${jobId}: success=${result.success}, duration=${result.duration}ms`,
-      );
-
-      jobRepository.updateStatus(
+      logger.info("runOpenCode completed", {
         jobId,
-        result.success ? "completed" : "failed",
-        {
-          sessionId: result.sessionId || null,
-          result: result.output,
-          error: result.error || null,
-          duration: result.duration,
-          completedAt: new Date(),
-        },
-      );
-
-      const reply = formatResultForDiscord(result, project.name);
-      await thread.post(reply);
-      typing.stop();
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[Discord] Error in job ${jobId}:`, errMsg);
-
-      jobRepository.updateStatus(jobId, "failed", {
-        error: errMsg,
-        completedAt: new Date(),
+        success: result.success,
+        duration: result.duration,
+        sessionId: result.sessionId,
       });
 
+      const wasAborted = result.error === "OpenCode run aborted.";
+      if (!wasAborted) {
+        jobRepository.updateStatus(
+          jobId,
+          result.success ? "completed" : "failed",
+          {
+            sessionId: result.sessionId || null,
+            result: result.output,
+            error: result.error || null,
+            duration: result.duration,
+            completedAt: new Date(),
+          },
+        );
+
+        const reply = formatResultForDiscord(result, project.name);
+        await thread.post(reply);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error("Error in Discord OpenCode job", { jobId, error: errMsg });
+
+      if (errMsg !== "OpenCode run aborted.") {
+        jobRepository.updateStatus(jobId, "failed", {
+          error: errMsg,
+          completedAt: new Date(),
+        });
+      }
+
       try {
-        await thread.post(`Internal error: ${errMsg}`);
-        typing.stop();
+        if (errMsg !== "OpenCode run aborted.") {
+          await thread.post(`Internal error: ${errMsg}`);
+        }
       } catch (editErr: unknown) {
-        console.error("[Discord] Failed to post error message:", editErr);
+        logger.error("Failed to post Discord error message", {
+          jobId,
+          error: editErr,
+        });
       }
     } finally {
+      this.cleanupActiveThreadRun(threadId, jobId);
       this.cancelPendingOpenCodeInput(threadId);
     }
   }
@@ -590,8 +676,87 @@ export class DiscordBot {
       isLinearChannel,
     } = job;
 
-    const activeJob = jobRepository.getActiveByThreadId(threadId);
-    if (activeJob) {
+    const activeRun = this.activeThreadRuns.get(threadId);
+    const activeJob =
+      activeRun && !activeRun.abortRequested
+        ? jobRepository.getActiveByThreadId(threadId)
+        : undefined;
+
+    if (activeRun && !activeRun.abortRequested && activeJob) {
+      const project = this.projectManager.getById(projectId);
+      if (!project) {
+        return;
+      }
+
+      const promptLower = prompt.toLowerCase().trim();
+      const promptSanitized = promptLower.replace(/[*_`~#]/g, "").trim();
+      const isAbortCommand =
+        promptSanitized === "abort" ||
+        promptSanitized === "cancel" ||
+        promptSanitized === "kill" ||
+        promptSanitized === "stop";
+
+      if (isAbortCommand) {
+        const existingConfirmation =
+          this.pendingAbortConfirmations.get(threadId);
+        if (existingConfirmation) {
+          await thread.post(
+            "An abort confirmation is already pending. Please confirm or deny first.",
+          );
+          return;
+        }
+
+        await thread.post(
+          "A job is currently running. Do you want to abort it?\n\n" +
+            "Reply with `@opencode confirm` to abort the running job, or `@opencode deny` to cancel this request.",
+        );
+
+        const abortConfirmationPromise = new Promise<boolean>((resolve) => {
+          this.pendingAbortConfirmations.set(threadId, {
+            jobId: activeRun.jobId,
+            sessionId: activeRun.sessionId,
+            projectFolder: activeRun.projectFolder,
+            resolve,
+            expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
+          });
+        });
+
+        const confirmed = await abortConfirmationPromise;
+        this.pendingAbortConfirmations.delete(threadId);
+
+        if (!confirmed) {
+          await thread.post("Abort cancelled. The existing job will continue.");
+          return;
+        }
+
+        await thread.post("Aborting the running job...");
+        this.abortActiveThreadRun(threadId);
+        jobRepository.updateStatus(activeRun.jobId, "failed", {
+          sessionId: null,
+          error: "Aborted by user",
+          completedAt: new Date(),
+        });
+
+        if (activeRun.sessionId) {
+          const abortResult = await abortSession(
+            activeRun.sessionId,
+            activeRun.projectFolder,
+          );
+
+          if (!abortResult.success) {
+            await thread.post(
+              `The local run was cancelled, but session cleanup failed: ${abortResult.error}. You can start a new job now.`,
+            );
+            return;
+          }
+        }
+
+        await thread.post(
+          "The running job has been aborted. You can now start a new job.",
+        );
+        return;
+      }
+
       await thread.post(
         "A job is already running in this thread. Please wait.",
       );
@@ -608,6 +773,11 @@ export class DiscordBot {
       jobRepository.getByThreadId(threadId);
     const sessionId = previousSessionJob?.sessionId || undefined;
 
+    const isFirstMessageInThread = !previousSessionJob;
+    if (isFirstMessageInThread) {
+      await this.renameThread(threadId, prompt);
+    }
+
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     jobRepository.create({
       id: jobId,
@@ -622,9 +792,14 @@ export class DiscordBot {
       startedAt: new Date(),
     });
 
-    console.log(
-      `[Discord] Job ${jobId} from ${authorTag} in thread ${threadId}: ${prompt.slice(0, 80)}${sessionId ? " (resuming session)" : ""}`,
-    );
+    logger.info("Handling existing Discord session job", {
+      jobId,
+      authorTag,
+      threadId,
+      promptPreview: prompt.slice(0, 80),
+      resuming: Boolean(sessionId),
+      sessionId,
+    });
 
     await thread.post(
       isLinearChannel
@@ -633,50 +808,72 @@ export class DiscordBot {
     );
 
     const typing = await this.startTypingInterval(threadId);
+    const controller = new AbortController();
+    this.activeThreadRuns.set(threadId, {
+      jobId,
+      projectFolder: project.folder,
+      sessionId: sessionId || null,
+      controller,
+      typing,
+      abortRequested: false,
+    });
 
     try {
-      console.log(`[Discord] Calling runOpenCode for job ${jobId}...`);
+      logger.info("Calling runOpenCode", { jobId, threadId, projectId });
       const result = await runOpenCode(
         prompt,
         project.folder,
         sessionId,
         this.createOpenCodeInteractionHandler(thread, threadId),
+        controller.signal,
       );
-      console.log(
-        `[Discord] runOpenCode completed for job ${jobId}: success=${result.success}, duration=${result.duration}ms`,
-      );
-
-      jobRepository.updateStatus(
+      logger.info("runOpenCode completed", {
         jobId,
-        result.success ? "completed" : "failed",
-        {
-          sessionId: result.sessionId || sessionId || null,
-          result: result.output,
-          error: result.error || null,
-          duration: result.duration,
-          completedAt: new Date(),
-        },
-      );
-
-      const reply = formatResultForDiscord(result, project.name);
-      await thread.post(reply);
-      typing.stop();
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[Discord] Error in job ${jobId}:`, errMsg);
-
-      jobRepository.updateStatus(jobId, "failed", {
-        error: errMsg,
-        completedAt: new Date(),
+        success: result.success,
+        duration: result.duration,
+        sessionId: result.sessionId || sessionId,
       });
 
+      const wasAborted = result.error === "OpenCode run aborted.";
+      if (!wasAborted) {
+        jobRepository.updateStatus(
+          jobId,
+          result.success ? "completed" : "failed",
+          {
+            sessionId: result.sessionId || sessionId || null,
+            result: result.output,
+            error: result.error || null,
+            duration: result.duration,
+            completedAt: new Date(),
+          },
+        );
+
+        const reply = formatResultForDiscord(result, project.name);
+        await thread.post(reply);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error("Error in Discord OpenCode job", { jobId, error: errMsg });
+
+      if (errMsg !== "OpenCode run aborted.") {
+        jobRepository.updateStatus(jobId, "failed", {
+          error: errMsg,
+          completedAt: new Date(),
+        });
+      }
+
       try {
-        await thread.post(`Internal error: ${errMsg}`);
-        typing.stop();
+        if (errMsg !== "OpenCode run aborted.") {
+          await thread.post(`Internal error: ${errMsg}`);
+        }
       } catch (editErr: unknown) {
-        console.error("[Discord] Failed to post error message:", editErr);
+        logger.error("Failed to post Discord error message", {
+          jobId,
+          error: editErr,
+        });
       }
     } finally {
+      this.cleanupActiveThreadRun(threadId, jobId);
       this.cancelPendingOpenCodeInput(threadId);
     }
   }
@@ -686,11 +883,57 @@ export class DiscordBot {
     threadId: string,
   ): OpenCodeInteractionHandler {
     return {
-      onPermissionRequest: async (request) =>
-        this.waitForPermissionReply(thread, threadId, request),
-      onQuestionRequest: async (request) =>
-        this.waitForQuestionReply(thread, threadId, request),
+      onPermissionRequest: async (request) => {
+        this.attachSessionIdToActiveRun(threadId, request.sessionId);
+        return this.waitForPermissionReply(thread, threadId, request);
+      },
+      onQuestionRequest: async (request) => {
+        this.attachSessionIdToActiveRun(threadId, request.sessionId);
+        return this.waitForQuestionReply(thread, threadId, request);
+      },
     };
+  }
+
+  private attachSessionIdToActiveRun(
+    threadId: string,
+    sessionId: string | undefined,
+  ): void {
+    if (!sessionId) {
+      return;
+    }
+
+    const activeRun = this.activeThreadRuns.get(threadId);
+    if (!activeRun || activeRun.sessionId === sessionId) {
+      return;
+    }
+
+    activeRun.sessionId = sessionId;
+    jobRepository.updateStatus(activeRun.jobId, "running", { sessionId });
+  }
+
+  private abortActiveThreadRun(threadId: string): void {
+    const activeRun = this.activeThreadRuns.get(threadId);
+    if (!activeRun || activeRun.abortRequested) {
+      return;
+    }
+
+    activeRun.abortRequested = true;
+    activeRun.typing.stop();
+    this.cancelPendingOpenCodeInput(
+      threadId,
+      "The OpenCode run was aborted before the input was used.",
+    );
+    activeRun.controller.abort();
+  }
+
+  private cleanupActiveThreadRun(threadId: string, jobId: string): void {
+    const activeRun = this.activeThreadRuns.get(threadId);
+    if (!activeRun || activeRun.jobId !== jobId) {
+      return;
+    }
+
+    activeRun.typing.stop();
+    this.activeThreadRuns.delete(threadId);
   }
 
   private async waitForPermissionReply(
@@ -698,12 +941,12 @@ export class DiscordBot {
     threadId: string,
     request: OpenCodePermissionRequest,
   ): Promise<OpenCodePermissionReply> {
-    const lines = [
-      `OpenCode needs approval for \`${request.permission}\`.`,
-    ];
+    const lines = [`OpenCode needs approval for \`${request.permission}\`.`];
 
     if (request.patterns.length) {
-      lines.push(`Patterns: ${request.patterns.map((item) => `\`${item}\``).join(", ")}`);
+      lines.push(
+        `Patterns: ${request.patterns.map((item) => `\`${item}\``).join(", ")}`,
+      );
     }
 
     lines.push(
@@ -728,9 +971,7 @@ export class DiscordBot {
     threadId: string,
     request: OpenCodeQuestionRequest,
   ): Promise<string[][]> {
-    const lines = [
-      "OpenCode needs more input before it can continue.",
-    ];
+    const lines = ["OpenCode needs more input before it can continue."];
 
     request.questions.forEach((question, index) => {
       lines.push("");
@@ -783,14 +1024,17 @@ export class DiscordBot {
     this.pendingOpenCodeInputs.set(threadId, pending);
   }
 
-  private cancelPendingOpenCodeInput(threadId: string): void {
+  private cancelPendingOpenCodeInput(
+    threadId: string,
+    reason = "The OpenCode run ended before the input was used.",
+  ): void {
     const pending = this.pendingOpenCodeInputs.get(threadId);
     if (!pending) {
       return;
     }
 
     this.pendingOpenCodeInputs.delete(threadId);
-    pending.reject(new Error("The OpenCode run ended before the input was used."));
+    pending.reject(new Error(reason));
   }
 
   private async tryHandlePendingOpenCodeInput(
@@ -806,7 +1050,9 @@ export class DiscordBot {
     if (Date.now() > pending.expiresAt) {
       this.pendingOpenCodeInputs.delete(threadId);
       pending.reject(new Error("Timed out waiting for Discord input."));
-      await thread.post("That approval request expired. Re-run the task if needed.");
+      await thread.post(
+        "That approval request expired. Re-run the task if needed.",
+      );
       return true;
     }
 
@@ -838,6 +1084,50 @@ export class DiscordBot {
     this.pendingOpenCodeInputs.delete(threadId);
     pending.resolve(answers);
     await thread.post("Recorded input. Continuing the OpenCode run.");
+    return true;
+  }
+
+  private async tryHandlePendingAbortConfirmation(
+    thread: ThreadHandle,
+    threadId: string,
+    prompt: string,
+  ): Promise<boolean> {
+    const pending = this.pendingAbortConfirmations.get(threadId);
+    if (!pending) {
+      return false;
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      this.pendingAbortConfirmations.delete(threadId);
+      await thread.post(
+        "The abort request timed out. Please try again if you still want to abort.",
+      );
+      return true;
+    }
+
+    const promptLower = prompt.toLowerCase().trim();
+    const isConfirm =
+      promptLower === "confirm" ||
+      promptLower === "yes" ||
+      promptLower === "y" ||
+      promptLower === "confirm abort";
+    const isDeny =
+      promptLower === "deny" ||
+      promptLower === "no" ||
+      promptLower === "n" ||
+      promptLower === "cancel" ||
+      promptLower === "don't abort" ||
+      promptLower === "dont abort";
+
+    if (!isConfirm && !isDeny) {
+      await thread.post(
+        "Please reply with `@opencode confirm` to abort the job, or `@opencode deny` to cancel this request.",
+      );
+      return true;
+    }
+
+    this.pendingAbortConfirmations.delete(threadId);
+    pending.resolve(isConfirm);
     return true;
   }
 
@@ -1080,14 +1370,15 @@ export class DiscordBot {
 
         if (!response.ok) {
           const text = await response.text();
-          console.error(
-            `[Discord] Gateway listener failed to start: ${response.status} ${text}`,
-          );
+          logger.error("Gateway listener failed to start", {
+            status: response.status,
+            body: text,
+          });
           await delay(GATEWAY_RESTART_DELAY_MS);
           continue;
         }
 
-        console.log("[Discord] Gateway listener running.");
+        logger.info("Discord gateway listener running");
 
         if (listenerTask) {
           await listenerTask;
@@ -1096,7 +1387,7 @@ export class DiscordBot {
         }
       } catch (error: unknown) {
         if (!this.isStopping) {
-          console.error("[Discord] Gateway listener error:", error);
+          logger.error("Discord gateway listener error", { error });
         }
       } finally {
         this.gatewayAbortController = null;
@@ -1115,7 +1406,7 @@ export class DiscordBot {
   private async startTypingInterval(
     channelId: string,
     intervalMs = 5000,
-  ): Promise<{ stop: () => void }> {
+  ): Promise<TypingHandle> {
     await this.sendTyping(channelId);
     const intervalId = setInterval(async () => {
       try {
@@ -1226,6 +1517,24 @@ export class DiscordBot {
       },
     };
   }
+
+  private async renameThread(threadId: string, prompt: string): Promise<void> {
+    const nameSource = prompt.trim() || "session";
+    const sanitized = nameSource
+      .replace(/\s+/g, "-")
+      .replace(/[^a-zA-Z0-9-_]/g, "")
+      .slice(0, 60)
+      .toLowerCase();
+    const threadName = sanitized || `session-${Date.now()}`;
+
+    try {
+      await this.discordApi(`/channels/${threadId}`, "PATCH", {
+        name: threadName,
+      });
+    } catch (error) {
+      logger.warn("Failed to rename thread", { threadId, error });
+    }
+  }
 }
 
 function parsePermissionReply(prompt: string): OpenCodePermissionReply | null {
@@ -1274,7 +1583,10 @@ function parseQuestionAnswers(
   }
 
   if (request.questions.length === 1) {
-    const answer = parseSingleQuestionAnswer(request.questions[0], prompt.trim());
+    const answer = parseSingleQuestionAnswer(
+      request.questions[0],
+      prompt.trim(),
+    );
     return answer ? [answer] : null;
   }
 
@@ -1284,7 +1596,10 @@ function parseQuestionAnswers(
 
   const answers: string[][] = [];
   for (let index = 0; index < request.questions.length; index += 1) {
-    const parsed = parseSingleQuestionAnswer(request.questions[index], lines[index]);
+    const parsed = parseSingleQuestionAnswer(
+      request.questions[index],
+      lines[index],
+    );
     if (!parsed) {
       return null;
     }

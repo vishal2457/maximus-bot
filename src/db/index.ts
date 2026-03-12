@@ -60,9 +60,9 @@ function ensureProjectsColumn(name: string, type: string): void {
     throw new Error("Database not initialized");
   }
 
-  const columns = sqlite
-    .prepare("PRAGMA table_info(projects)")
-    .all() as Array<{ name: string }>;
+  const columns = sqlite.prepare("PRAGMA table_info(projects)").all() as Array<{
+    name: string;
+  }>;
   const hasColumn = columns.some((column) => column.name === name);
   if (!hasColumn) {
     sqlite.exec(`ALTER TABLE projects ADD COLUMN ${name} ${type}`);

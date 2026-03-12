@@ -29,7 +29,6 @@ export class ProjectRepository {
     return result;
   }
 
-
   getByCategoryId(categoryId: string): Project | undefined {
     const db = getDb();
     const result = db
@@ -55,6 +54,31 @@ export class ProjectRepository {
       })
       .where(eq(projects.id, id))
       .run();
+  }
+
+  create(project: {
+    id: string;
+    name: string;
+    description: string;
+    folder: string;
+    linearProjectId?: string;
+    linearProjectName?: string;
+  }): Project {
+    const db = getDb();
+    db.insert(projects)
+      .values({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        folder: project.folder,
+        discordCategoryId: null,
+        developmentChannelId: null,
+        linearIssuesChannelId: null,
+        linearProjectId: project.linearProjectId || null,
+        linearProjectName: project.linearProjectName || null,
+      })
+      .run();
+    return this.getById(project.id)!;
   }
 
   seedFromJson(
