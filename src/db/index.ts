@@ -62,9 +62,90 @@ function initializeSchema() {
       result TEXT,
       error TEXT,
       duration INTEGER,
+      platform TEXT NOT NULL DEFAULT 'discord',
+      platform_thread_id TEXT,
+      sdk_type TEXT NOT NULL DEFAULT 'opencode',
+      worker_id TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
       completed_at INTEGER
     )
   `);
+
+  runMigrations();
+
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)`);
+  sqlite.exec(
+    `CREATE INDEX IF NOT EXISTS idx_jobs_thread_id ON jobs(thread_id)`,
+  );
+  sqlite.exec(
+    `CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at)`,
+  );
+  sqlite.exec(
+    `CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)`,
+  );
+}
+
+function runMigrations() {
+  if (!sqlite) {
+    throw new Error("Database not initialized");
+  }
+
+  const jobColumns = sqlite.prepare("PRAGMA table_info(jobs)").all() as {
+    name: string;
+  }[];
+  const jobColumnNames = new Set(jobColumns.map((c) => c.name));
+
+  if (!jobColumnNames.has("thread_id")) {
+    sqlite.exec("ALTER TABLE jobs ADD COLUMN thread_id TEXT");
+    sqlite.exec(
+      "UPDATE jobs SET thread_id = message_id WHERE thread_id IS NULL AND message_id IS NOT NULL",
+    );
+  }
+
+  if (!jobColumnNames.has("session_id")) {
+    sqlite.exec("ALTER TABLE jobs ADD COLUMN session_id TEXT");
+  }
+
+  if (!jobColumnNames.has("platform_thread_id")) {
+    sqlite.exec("ALTER TABLE jobs ADD COLUMN platform_thread_id TEXT");
+  }
+
+  if (!jobColumnNames.has("sdk_type")) {
+    sqlite.exec(
+      "ALTER TABLE jobs ADD COLUMN sdk_type TEXT NOT NULL DEFAULT 'opencode'",
+    );
+  }
+
+  if (!jobColumnNames.has("worker_id")) {
+    sqlite.exec("ALTER TABLE jobs ADD COLUMN worker_id TEXT");
+  }
+
+  if (!jobColumnNames.has("retry_count")) {
+    sqlite.exec(
+      "ALTER TABLE jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  const projectColumns = sqlite
+    .prepare("PRAGMA table_info(projects)")
+    .all() as {
+    name: string;
+  }[];
+  const projectColumnNames = new Set(projectColumns.map((c) => c.name));
+
+  if (!projectColumnNames.has("discord_category_id")) {
+    sqlite.exec("ALTER TABLE projects ADD COLUMN discord_category_id TEXT");
+  }
+
+  if (!projectColumnNames.has("development_channel_id")) {
+    sqlite.exec("ALTER TABLE projects ADD COLUMN development_channel_id TEXT");
+  }
+
+  if (!projectColumnNames.has("linear_issues_channel_id")) {
+    sqlite.exec(
+      "ALTER TABLE projects ADD COLUMN linear_issues_channel_id TEXT",
+    );
+  }
 }

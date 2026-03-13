@@ -12,6 +12,11 @@ export const jobs = sqliteTable("jobs", {
   result: text("result"),
   error: text("error"),
   duration: integer("duration"),
+  platform: text("platform").notNull().default("discord"),
+  platformThreadId: text("platform_thread_id"),
+  sdkType: text("sdk_type").notNull().default("opencode"),
+  workerId: text("worker_id"),
+  retryCount: integer("retry_count").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   startedAt: integer("started_at", { mode: "timestamp" }),
   completedAt: integer("completed_at", { mode: "timestamp" }),
@@ -19,3 +24,6 @@ export const jobs = sqliteTable("jobs", {
 
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
+export type JobPlatform = "discord" | "slack";
+export type SdkType = "opencode" | "codex";
+export type JobStatus = "pending" | "running" | "completed" | "failed";

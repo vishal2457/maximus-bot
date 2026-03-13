@@ -23,6 +23,8 @@ function mapDbProject(p: Project): Project {
 
 export class ProjectManager {
   private projects: Project[] = [];
+  private projectsById: Map<string, Project> = new Map();
+  private projectsByChannelId: Map<string, Project> = new Map();
   private filePath: string;
 
   constructor() {
@@ -51,6 +53,7 @@ export class ProjectManager {
       linearProjectId: project.linearProjectId || "",
       linearProjectName: project.linearProjectName || "",
     }));
+    this.rebuildIndexes();
     logger.info("Loaded projects from JSON", {
       count: this.projects.length,
       filePath: this.filePath,
@@ -79,6 +82,20 @@ export class ProjectManager {
     }
   }
 
+  private rebuildIndexes(): void {
+    this.projectsById.clear();
+    this.projectsByChannelId.clear();
+    for (const project of this.projects) {
+      this.projectsById.set(project.id, project);
+      if (project.developmentChannelId) {
+        this.projectsByChannelId.set(project.developmentChannelId, project);
+      }
+      if (project.linearIssuesChannelId) {
+        this.projectsByChannelId.set(project.linearIssuesChannelId, project);
+      }
+    }
+  }
+
   reload(): void {
     this.loadFromJson();
     this.seedDatabase();
@@ -103,7 +120,7 @@ export class ProjectManager {
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.error("Error getting project by id", { id, error: errMsg });
-      return this.projects.find((p) => p.id === id);
+      return this.projectsById.get(id);
     }
   }
 
@@ -118,11 +135,7 @@ export class ProjectManager {
         channelId,
         error: errMsg,
       });
-      return this.projects.find(
-        (p) =>
-          p.developmentChannelId === channelId ||
-          p.linearIssuesChannelId === channelId,
-      );
+      return this.projectsByChannelId.get(channelId);
     }
   }
 
@@ -212,3 +225,5 @@ export class ProjectManager {
     });
   }
 }
+
+export const projectManager = new ProjectManager();

@@ -4,16 +4,19 @@ import { DiscordBot } from "./bots/discord-bot";
 import { createServer } from "./server";
 import { shutdownOpenCodeRunner } from "./open-code-runner";
 import { logger } from "./shared/logger";
+import { jobProcessor } from "./job-processor";
 
-const PORT = parseInt(process.env.PORT || "3000", 10);
+const PORT = parseInt(process.env.PORT || "0", 10);
 
 async function main(): Promise<void> {
+  logger.info("Starting Maximus Bot");
+
   const enableDiscord =
     process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN;
-  if (!enableDiscord) {
-    logger.error("No bot configured. Please configure at least one of:");
-    process.exit(1);
-  }
+
+  const projectManager = new ProjectManager();
+
+  let discordBot: DiscordBot | null = null;
 
   if (enableDiscord) {
     const missing: string[] = [];
@@ -29,26 +32,24 @@ async function main(): Promise<void> {
       });
       process.exit(1);
     }
-  }
 
-  logger.info("Starting OpenCode Bridge");
-
-  // ── 1. Load Projects ──────────────────────────────────────────────────────
-  const projectManager = new ProjectManager();
-
-  // ── 2. Start Bots ──────────────────────────────────────────────────────────
-  const discordBot = enableDiscord ? new DiscordBot(projectManager) : null;
-
-  if (discordBot) {
+    discordBot = new DiscordBot(projectManager);
     await discordBot.start();
     logger.info("Discord bot started successfully");
+
+    jobProcessor.setPermissionHandler(discordBot);
   }
 
-  // ── 3. Start Express Server ───────────────────────────────────────────────
+  await jobProcessor.start();
+
   const app = createServer(projectManager, discordBot);
-  app.listen(PORT, () => {
+  const server = app.listen(PORT || undefined, () => {
+    const address = server.address();
+    const actualPort =
+      typeof address === "object" && address ? address.port : PORT;
     logger.info("HTTP server listening", {
-      url: `http://localhost:${PORT}`,
+      url: `http://localhost:${actualPort}`,
+      port: actualPort,
       routes: [
         "GET /health",
         ...(discordBot ? ["POST /api/webhooks/discord"] : []),
@@ -59,29 +60,31 @@ async function main(): Promise<void> {
         "GET /logs/:type",
       ],
     });
-    logger.info("Registered route", { method: "GET", path: "/health" });
-    if (discordBot) {
-      logger.info("Registered route", {
-        method: "POST",
-        path: "/api/webhooks/discord",
-      });
-    }
-    logger.info("Registered route", { method: "GET", path: "/projects" });
-    logger.info("Registered route", {
-      method: "POST",
-      path: "/projects/reload",
-    });
-    logger.info("Registered route", { method: "POST", path: "/sync" });
-    logger.info("Registered route", {
-      method: "POST",
-      path: "/run/:projectId",
-      body: { prompt: "..." },
-    });
   });
 
-  // ── 4. Graceful Shutdown ──────────────────────────────────────────────────
+  logger.info("Registered route", { method: "GET", path: "/health" });
+  if (discordBot) {
+    logger.info("Registered route", {
+      method: "POST",
+      path: "/api/webhooks/discord",
+    });
+  }
+  logger.info("Registered route", { method: "GET", path: "/projects" });
+  logger.info("Registered route", {
+    method: "POST",
+    path: "/projects/reload",
+  });
+  logger.info("Registered route", { method: "POST", path: "/sync" });
+  logger.info("Registered route", {
+    method: "POST",
+    path: "/run/:projectId",
+    body: { prompt: "..." },
+  });
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("Received shutdown signal", { signal });
+
+    await jobProcessor.stop();
 
     if (discordBot) {
       await discordBot.shutdown();

@@ -124,8 +124,8 @@ export async function runOpenCode(
 
   const start = Date.now();
   for (let attempt = 0; attempt <= RUN_RETRY_COUNT; attempt += 1) {
+    const sdk = new OpencodeSdk(options);
     try {
-      const sdk = new OpencodeSdk(options);
       const result = await sdk.run(
         prompt,
         workingDir,
@@ -134,7 +134,6 @@ export async function runOpenCode(
         abortSignal,
       );
 
-      // Convert CodingSdkResult to OpenCodeResult (they have the same structure)
       return {
         success: result.success,
         output: result.output,
@@ -154,6 +153,12 @@ export async function runOpenCode(
         error: errMsg,
       });
 
+      try {
+        await sdk.shutdown();
+      } catch {
+        // Ignore shutdown errors
+      }
+
       if (!canRetry) {
         return {
           success: false,
@@ -163,8 +168,6 @@ export async function runOpenCode(
           duration,
         };
       }
-      // Note: We create a new SDK instance each retry to mimic the original behavior
-      // of resetting the runtime on failure.
     }
   }
 

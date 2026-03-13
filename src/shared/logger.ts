@@ -47,12 +47,7 @@ if (process.env.NODE_ENV !== "production") {
         winston.format.colorize(),
         winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
         winston.format.printf(
-          ({
-            timestamp,
-            level: logLevel,
-            message,
-            ...meta
-          }: any) =>
+          ({ timestamp, level: logLevel, message, ...meta }: any) =>
             `${timestamp} [${logLevel}] ${message}${
               Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : ""
             }`,

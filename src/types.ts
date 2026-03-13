@@ -1,5 +1,3 @@
-
-
 export interface OpenCodeResult {
   success: boolean;
   output: string;

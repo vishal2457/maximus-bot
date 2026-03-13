@@ -9,11 +9,14 @@ importers:
   .:
     dependencies:
       '@chat-adapter/discord':
-        specifier: ^4.19.0
-        version: 4.19.0
+        specifier: ^4.20.1
+        version: 4.20.1
       '@chat-adapter/state-memory':
-        specifier: ^4.19.0
-        version: 4.19.0
+        specifier: ^4.20.1
+        version: 4.20.1
+      '@openai/codex-sdk':
+        specifier: ^0.114.0
+        version: 0.114.0
       '@opencode-ai/sdk':
         specifier: ^1.2.24
         version: 1.2.24
@@ -24,8 +27,11 @@ importers:
         specifier: ^12.6.2
         version: 12.6.2
       chat:
-        specifier: ^4.19.0
-        version: 4.19.0
+        specifier: ^4.20.1
+        version: 4.20.1
+      discord.js:
+        specifier: ^14.19.3
+        version: 14.25.1
       dotenv:
         specifier: ^16.3.1
         version: 16.6.1
@@ -35,6 +41,9 @@ importers:
       express:
         specifier: ^4.18.2
         version: 4.22.1
+      keytar:
+        specifier: ^7.9.0
+        version: 7.9.0
       winston:
         specifier: ^3.19.0
         version: 3.19.0
@@ -55,7 +64,7 @@ importers:
         specifier: ^0.31.9
         version: 0.31.9
       esbuild:
-        specifier: ^0.20.1
+        specifier: ^0.20.2
         version: 0.20.2
       esbuild-register:
         specifier: ^3.5.0
@@ -78,14 +87,14 @@ importers:
 
 packages:
 
-  '@chat-adapter/discord@4.19.0':
-    resolution: {integrity: sha512-hozUocOR686O1u7ZJZhK1sRBCg00EZvH31r0hpa2St9Y6GUaDVoUTnJrAkiVGp0UGYdOxqWsmCALVl4qAs9U1Q==}
+  '@chat-adapter/discord@4.20.1':
+    resolution: {integrity: sha512-CW3UGUYcYDRIx4ug4zVtd7FNtVreX5wUGl9TSa0lINciLJG3nva3zd5mJwD8CBKh/ZbjOm7eRRUk9tEOYVm6Rw==}
 
-  '@chat-adapter/shared@4.19.0':
-    resolution: {integrity: sha512-77AUsz8XiY9uS1iBISOsJzjUhcV6v/RbJr30uQearaGlkddEy9bb5B66Knc0O+7TA8uuGEMNPrMqglzG7lqwOQ==}
+  '@chat-adapter/shared@4.20.1':
+    resolution: {integrity: sha512-UawGmT7O+3vxvaU9f+lc0PVQKU+TvE0PUxa0zL43qH1rqGkosngtT3cOOhW6JOx+rxt3jox2a99xr8hnJPkshA==}
 
-  '@chat-adapter/state-memory@4.19.0':
-    resolution: {integrity: sha512-s3zICzc/AP/pXhAJssVi9hVRqmyZEN4d/Ujk5oLFK1uF4wr8Y35+v0xb1gElgbAIsDVKqg3yCQkNANvEtUqGXA==}
+  '@chat-adapter/state-memory@4.20.1':
+    resolution: {integrity: sha512-JtITUuz4xYwXMOSH8dCYjuxgIgtkecVH5RUVR46PT9Nh8QT4l6WRMNZvdrWkJOn9jOZToXiNS/ae0OFJHJtN+g==}
 
   '@colors/colors@1.6.0':
     resolution: {integrity: sha512-Ir+AOibqzrIsL6ajt3Rz3LskB7OiMVHqltZmspbW/TJuTVuyOMirVqAkjfY6JISiLHgyNqicAC8AyHHGzNd/dA==}
@@ -718,6 +727,51 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
+  '@openai/codex-sdk@0.114.0':
+    resolution: {integrity: sha512-28tV+pvoQhhoRADBCtlg24fR6LDTyeUA6C65NBTvYFnDoQVPJcHcAwRrbuWmUMcXdLrXwY2bmiMxyfXlUWQzgw==}
+    engines: {node: '>=18'}
+
+  '@openai/codex@0.114.0':
+    resolution: {integrity: sha512-HMo8LRR6CtfKkaa28xvFK6eOarmBFTDfsrS9GJtEoaspGGemFok494CpafDspiTZaHZZGHfSUe5SWTUxYq7OaA==}
+    engines: {node: '>=16'}
+    hasBin: true
+
+  '@openai/codex@0.114.0-darwin-arm64':
+    resolution: {integrity: sha512-c9dlgo9O+66alr3s3G36fKE3KaO2+xrLZ/QcU3oujDruV86pqgVSEK2njHi+WIyyOa6m2AyWxdaHLEbKxPCNRg==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@openai/codex@0.114.0-darwin-x64':
+    resolution: {integrity: sha512-oPAPeZSaJZ1AQneFPSJu44uqbZr63Bxut9FOTWZwuSqYx4YEees7i0HJmJcqQc0XnCbYtHJdqo/i07Uv374NLw==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@openai/codex@0.114.0-linux-arm64':
+    resolution: {integrity: sha512-oUFZGZgMiEqmo85C+dfhckpVApH25alLWfwBgfKr2IRgdx/tovy8vN101f6kj01E6nDDe4LfJdNSZGtZht4fRA==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@openai/codex@0.114.0-linux-x64':
+    resolution: {integrity: sha512-MF6RhxfBoccccd5CYII2C7TL2TvYzombBQhanDZfQAajr6n7IuoazCmoHDlrFHS4AcSw9bYA4MRlrwEjbEjgsw==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [linux]
+
+  '@openai/codex@0.114.0-win32-arm64':
+    resolution: {integrity: sha512-CnRMHopj3en9aqQ2UaDW7EgpEGkxHdZVLLRq2cOy5D0HyuzF6Qb6595ADoFVJHEmPeN5Iz/KUbiGs5GLDjUwOA==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@openai/codex@0.114.0-win32-x64':
+    resolution: {integrity: sha512-ztRsH5Z+gPVZ5ZInx6HzXsTFFkuEdjk3Ay0UGVOhRRCWvevXQi/SL4eU8hwysCYrs8K/WRq3mo4c95w9zQ2wLw==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [win32]
+
   '@opencode-ai/sdk@1.2.24':
     resolution: {integrity: sha512-MQamFkRl4B/3d6oIRLNpkYR2fcwet1V/ffKyOKJXWjtP/CT9PDJMtLpu6olVHjXKQi8zMNltwuMhv1QsNtRlZg==}
 
@@ -1123,8 +1177,8 @@ packages:
   charm@0.1.2:
     resolution: {integrity: sha512-syedaZ9cPe7r3hoQA9twWYKu5AIyCswN5+szkmPBe9ccdLrj4bYaCnLVPTLd2kgVRc7+zoX4tyPgRnFKCj5YjQ==}
 
-  chat@4.19.0:
-    resolution: {integrity: sha512-DKcs4yQ5RyQ7LWercePBSttiKpsb6EBkQEBq6UrFyyS0R6UgxO4Ow2s0JwdeSplM9OHJ+Jx6ahYdIJKHHccJhw==}
+  chat@4.20.1:
+    resolution: {integrity: sha512-TwvP1bbzK2g3sYHhD94wot2watxnySCYLQkaMdYjM79T43OTybG8hSSFhOrrp/AXjLHei2sch4GCOQu+4zcfHw==}
 
   check-error@2.1.3:
     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
@@ -1721,6 +1775,9 @@ packages:
   json-stringify-safe@5.0.1:
     resolution: {integrity: sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==}
 
+  keytar@7.9.0:
+    resolution: {integrity: sha512-VPD8mtVtm5JNtA2AErl6Chp06JBfy7diFQ7TQQhdpWOl6MrCRB+eRbvAZUsbGQS9kiMq0coJsy0W0vHpDCkWsQ==}
+
   kuler@2.0.0:
     resolution: {integrity: sha512-Xq9nH7KlWZmXAtodXDDRE7vs6DU1gTU8zYDHDiWLSip45Egwq3plLHzPn27NgvzL2r1LMPC1vdqh98sQxtqj4A==}
 
@@ -1960,6 +2017,9 @@ packages:
   node-abi@3.88.0:
     resolution: {integrity: sha512-At6b4UqIEVudaqPsXjmUO1r/N5BUr4yhDGs5PkBE8/oG5+TfLPhFechiskFsnT6Ql0VfUXbalUUCbfXxtj7K+w==}
     engines: {node: '>=10'}
+
+  node-addon-api@4.3.0:
+    resolution: {integrity: sha512-73sE9+3UaLYYFmDsFZnqCInzPyh3MqIwZO9cw58yIqAZhONrrabrYyYe3TuIqtIiOuTXVhsGau8hcrhhwSsDIQ==}
 
   nodemon@3.1.14:
     resolution: {integrity: sha512-jakjZi93UtB3jHMWsXL68FXSAosbLfY0In5gtKq3niLSkrWznrVBzXFNOEMJUfc9+Ke7SHWoAZsiMkNP3vq6Jw==}
@@ -2551,10 +2611,10 @@ packages:
 
 snapshots:
 
-  '@chat-adapter/discord@4.19.0':
+  '@chat-adapter/discord@4.20.1':
     dependencies:
-      '@chat-adapter/shared': 4.19.0
-      chat: 4.19.0
+      '@chat-adapter/shared': 4.20.1
+      chat: 4.20.1
       discord-api-types: 0.37.120
       discord-interactions: 4.4.0
       discord.js: 14.25.1
@@ -2563,15 +2623,15 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@chat-adapter/shared@4.19.0':
+  '@chat-adapter/shared@4.20.1':
     dependencies:
-      chat: 4.19.0
+      chat: 4.20.1
     transitivePeerDependencies:
       - supports-color
 
-  '@chat-adapter/state-memory@4.19.0':
+  '@chat-adapter/state-memory@4.20.1':
     dependencies:
-      chat: 4.19.0
+      chat: 4.20.1
     transitivePeerDependencies:
       - supports-color
 
@@ -2936,6 +2996,37 @@ snapshots:
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@openai/codex-sdk@0.114.0':
+    dependencies:
+      '@openai/codex': 0.114.0
+
+  '@openai/codex@0.114.0':
+    optionalDependencies:
+      '@openai/codex-darwin-arm64': '@openai/codex@0.114.0-darwin-arm64'
+      '@openai/codex-darwin-x64': '@openai/codex@0.114.0-darwin-x64'
+      '@openai/codex-linux-arm64': '@openai/codex@0.114.0-linux-arm64'
+      '@openai/codex-linux-x64': '@openai/codex@0.114.0-linux-x64'
+      '@openai/codex-win32-arm64': '@openai/codex@0.114.0-win32-arm64'
+      '@openai/codex-win32-x64': '@openai/codex@0.114.0-win32-x64'
+
+  '@openai/codex@0.114.0-darwin-arm64':
+    optional: true
+
+  '@openai/codex@0.114.0-darwin-x64':
+    optional: true
+
+  '@openai/codex@0.114.0-linux-arm64':
+    optional: true
+
+  '@openai/codex@0.114.0-linux-x64':
+    optional: true
+
+  '@openai/codex@0.114.0-win32-arm64':
+    optional: true
+
+  '@openai/codex@0.114.0-win32-x64':
+    optional: true
 
   '@opencode-ai/sdk@1.2.24': {}
 
@@ -3353,7 +3444,7 @@ snapshots:
 
   charm@0.1.2: {}
 
-  chat@4.19.0:
+  chat@4.20.1:
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0
@@ -3952,6 +4043,11 @@ snapshots:
   json-stringify-safe@5.0.1:
     optional: true
 
+  keytar@7.9.0:
+    dependencies:
+      node-addon-api: 4.3.0
+      prebuild-install: 7.1.3
+
   kuler@2.0.0: {}
 
   lodash.snakecase@4.1.1: {}
@@ -4335,6 +4431,8 @@ snapshots:
   node-abi@3.88.0:
     dependencies:
       semver: 7.7.4
+
+  node-addon-api@4.3.0: {}
 
   nodemon@3.1.14:
     dependencies:

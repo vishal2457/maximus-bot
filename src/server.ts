@@ -9,6 +9,11 @@ import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
 import { logger } from "./shared/logger";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  setSecret,
+  deleteSecret,
+  getAllSecrets,
+} from "./secrets-manager";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -216,6 +221,61 @@ export function createServer(
         exitCode: result.exitCode,
         duration: result.duration,
       });
+    },
+  );
+
+  // Handle Secrets API
+  app.get("/api/secrets", async (_req, res) => {
+    try {
+      const secrets = await getAllSecrets();
+      const result: Record<string, string> = {};
+      for (const [key, value] of Object.entries(secrets)) {
+        result[key] = value ?? "";
+      }
+      res.json(result);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post(
+    "/api/secrets",
+    async (req: ExpressRequest, res: ExpressResponse) => {
+      const { key, value } = req.body as { key?: string; value?: string };
+
+      if (!key || !value) {
+        res.status(400).json({ error: "key and value are required" });
+        return;
+      }
+
+      try {
+        await setSecret(key, value);
+        res.json({ ok: true });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/secrets/:key",
+    async (req: ExpressRequest, res: ExpressResponse) => {
+      const { key } = req.params;
+
+      if (!key) {
+        res.status(400).json({ error: "key is required" });
+        return;
+      }
+
+      try {
+        await deleteSecret(key);
+        res.json({ ok: true });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
     },
   );
 

@@ -8,9 +8,8 @@ Routes Discord messages from project-specific channels directly to [OpenCode](ht
 Discord Message
     │
     ▼
-DiscordBot (Chat SDK + Discord Adapter)
-    │  Gateway listener receives messages
-    │  Webhook endpoint handles interactions
+DiscordBot (discord.js Client)
+    │  Gateway events receive mentions and thread replies
     ▼
 ProjectManager (projects.json)
     │  resolves folder path
@@ -43,11 +42,7 @@ Fill in `.env`:
 | `DISCORD_TOKEN`                     | Backward-compatible alias for `DISCORD_BOT_TOKEN`                                                                             |
 | `DISCORD_GUILD_ID`                  | Right-click your server → Copy Server ID                                                                                      |
 | `DISCORD_CATEGORY_NAME`             | Name of the category to create channels under (default: `OpenCode Projects`)                                                  |
-| `DISCORD_APPLICATION_ID`            | Discord application ID                                                                                                        |
-| `DISCORD_PUBLIC_KEY`                | Discord public key for interaction signature verification                                                                     |
-| `DISCORD_WEBHOOK_URL`               | Optional URL used by gateway forward mode (example: `https://your-domain/api/webhooks/discord`)                               |
-| `DISCORD_GATEWAY_DURATION_MS`       | Gateway listener duration per cycle in ms (default: `600000`)                                                                 |
-| `DISCORD_GATEWAY_RESTART_DELAY_MS`  | Delay before restarting gateway listener in ms (default: `2000`)                                                              |
+| `DISCORD_RECONNECT_DELAY_MS`        | Delay before forcing a fresh Discord client reconnect after session invalidation (default: `5000`)                            |
 | `PORT`                              | Express server port (default: `3000`)                                                                                         |
 | `WEBHOOK_SECRET`                    | Secret for protecting HTTP endpoints                                                                                          |
 | `OPENCODE_PERMISSION_MODE`          | SDK permission mode for tools (`allow`, `ask`, `deny`; default: `allow`). In `ask` mode, Discord users can approve in-thread. |
@@ -63,21 +58,8 @@ Fill in `.env`:
 
 In the Developer Portal, your bot needs:
 
-- **Intents**: `Server Members`, `Message Content`
+- **Intents**: `Message Content`
 - **Permissions**: `Manage Channels`, `Send Messages`, `Read Message History`
-- **Interactions Endpoint URL**: `https://your-domain/api/webhooks/discord`
-
-For local development, run a tunnel:
-
-```bash
-ngrok http 3000
-```
-
-Then set the Interactions endpoint to:
-
-```text
-https://<ngrok-id>.ngrok.io/api/webhooks/discord
-```
 
 ### 4. Configure projects.json
 
@@ -111,11 +93,11 @@ npm run build && npm start
 
 On startup the bot will:
 
-1. Initialize Chat SDK + Discord adapter
+1. Initialize the `discord.js` client
 2. Find or create the `OpenCode Projects` category
 3. Create a channel for each project in `projects.json`
 4. Save channel IDs back to `projects.json`
-5. Start a continuous Discord Gateway listener loop
+5. Listen for bot mentions and thread replies over the Discord gateway
 
 ## Usage
 

@@ -37,7 +37,14 @@ export class JobRepository {
 
   create(job: NewJob): Job {
     const db = getDb();
-    db.insert(jobs).values(job).run();
+    db.insert(jobs)
+      .values({
+        ...job,
+        platform: job.platform || "discord",
+        sdkType: job.sdkType || "opencode",
+        retryCount: job.retryCount || 0,
+      })
+      .run();
     return this.getById(job.id)!;
   }
 

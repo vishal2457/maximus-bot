@@ -5,5 +5,11 @@
     "description": "monorepo of turbo derived",
     "folder": "/Users/vishalacharya/Documents/derived/main-derived/turbo-derived",
     "linearProjectName": "DERIVED"
+  },
+  {
+    "id": "proj_1773345874861_fvst06av2",
+    "name": "goevents",
+    "description": "Tanstack app",
+    "folder": "/Users/vishalacharya/Documents/derived/fizbo.online/goevents"
   }
 ]

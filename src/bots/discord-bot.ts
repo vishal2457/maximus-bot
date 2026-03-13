@@ -1,15 +1,4 @@
 import { ProjectManager } from "../project-manager";
-import {
-  abortSession,
-  formatResultForDiscord,
-  type OpenCodeInteractionHandler,
-  type OpenCodePermissionReply,
-  type OpenCodePermissionRequest,
-  type OpenCodeQuestionRequest,
-  runOpenCode,
-} from "../open-code-runner";
-import { MessageJob } from "../types";
-import { jobRepository } from "../repositories/job-repository";
 import { logger } from "../shared/logger";
 import {
   DISCORD_API_BASE_URL,
@@ -20,6 +9,13 @@ import {
   getDevelopmentChannelName,
   isLegacyDevelopmentChannelName,
 } from "../shared/discord-channel.util";
+import { jobQueueRepository } from "../repositories/job-queue-repository";
+import type {
+  PermissionHandler,
+  PermissionReply,
+  PermissionRequest,
+  QuestionRequest,
+} from "../permission-handler";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -30,11 +26,6 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 
 const DISCORD_API_BASE = DISCORD_API_BASE_URL;
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
-const SESSION_THREAD_TITLE_PREVIEW_LENGTH = 120;
-const PENDING_OPENCODE_INPUT_TIMEOUT_MS = parsePositiveInt(
-  process.env.PENDING_OPENCODE_INPUT_TIMEOUT_MS,
-  15 * 60 * 1000,
-);
 const CHANNEL_CACHE_TTL_MS = parsePositiveInt(
   process.env.DISCORD_CHANNEL_CACHE_TTL_MS,
   15 * 60 * 1000,
@@ -50,6 +41,10 @@ const GATEWAY_DURATION_MS = parsePositiveInt(
 const GATEWAY_RESTART_DELAY_MS = parsePositiveInt(
   process.env.DISCORD_GATEWAY_RESTART_DELAY_MS,
   2_000,
+);
+const PERMISSION_TIMEOUT_MS = parsePositiveInt(
+  process.env.PERMISSION_TIMEOUT_MS,
+  15 * 60 * 1000,
 );
 
 type DiscordThreadParts = {
@@ -141,41 +136,6 @@ type ChatCtor = new (config: {
   state: unknown;
 }) => ChatBotLike;
 
-type PendingPermissionInput = {
-  kind: "permission";
-  request: OpenCodePermissionRequest;
-  resolve(value: OpenCodePermissionReply): void;
-  reject(error: Error): void;
-  expiresAt: number;
-};
-
-type PendingQuestionInput = {
-  kind: "question";
-  request: OpenCodeQuestionRequest;
-  resolve(value: string[][]): void;
-  reject(error: Error): void;
-  expiresAt: number;
-};
-
-type PendingOpenCodeInput = PendingPermissionInput | PendingQuestionInput;
-
-type TypingHandle = {
-  stop(): void;
-};
-
-type ActiveThreadRun = {
-  jobId: string;
-  projectFolder: string;
-  sessionId: string | null;
-  controller: AbortController;
-  typing: TypingHandle;
-  abortRequested: boolean;
-};
-
-type ChatSdkModule = {
-  Chat: ChatCtor;
-};
-
 type DiscordAdapterModule = {
   createDiscordAdapter(config?: {
     botToken?: string;
@@ -189,7 +149,22 @@ type MemoryStateModule = {
   createMemoryState(): unknown;
 };
 
-export class DiscordBot {
+type PendingPermission = {
+  jobId: string;
+  resolve(reply: PermissionReply): void;
+  reject(error: Error): void;
+  expiresAt: number;
+};
+
+type PendingQuestion = {
+  jobId: string;
+  request: QuestionRequest;
+  resolve(answers: string[][]): void;
+  reject(error: Error): void;
+  expiresAt: number;
+};
+
+export class DiscordBot implements PermissionHandler {
   private projectManager: ProjectManager;
   private bot: ChatBotLike | null = null;
   private isInitialized = false;
@@ -202,18 +177,8 @@ export class DiscordBot {
     string,
     Promise<CachedChannelMeta | null>
   >();
-  private pendingOpenCodeInputs = new Map<string, PendingOpenCodeInput>();
-  private pendingAbortConfirmations = new Map<
-    string,
-    {
-      jobId: string;
-      sessionId: string | null;
-      projectFolder: string;
-      resolve(confirmed: boolean): void;
-      expiresAt: number;
-    }
-  >();
-  private activeThreadRuns = new Map<string, ActiveThreadRun>();
+  private pendingPermissions = new Map<string, PendingPermission>();
+  private pendingQuestions = new Map<string, PendingQuestion>();
 
   constructor(projectManager: ProjectManager) {
     this.projectManager = projectManager;
@@ -250,17 +215,15 @@ export class DiscordBot {
     this.isStopping = true;
     this.isInitialized = false;
 
-    for (const [threadId, pending] of this.pendingOpenCodeInputs.entries()) {
-      this.pendingOpenCodeInputs.delete(threadId);
+    for (const [threadId, pending] of this.pendingPermissions.entries()) {
       pending.reject(new Error("Discord bot is shutting down."));
     }
+    this.pendingPermissions.clear();
 
-    for (const [threadId, activeRun] of this.activeThreadRuns.entries()) {
-      activeRun.abortRequested = true;
-      activeRun.typing.stop();
-      activeRun.controller.abort();
-      this.activeThreadRuns.delete(threadId);
+    for (const [threadId, pending] of this.pendingQuestions.entries()) {
+      pending.reject(new Error("Discord bot is shutting down."));
     }
+    this.pendingQuestions.clear();
 
     if (this.gatewayAbortController) {
       this.gatewayAbortController.abort();
@@ -292,6 +255,74 @@ export class DiscordBot {
   async postToChannel(channelId: string, content: string): Promise<void> {
     await this.discordApi(`/channels/${channelId}/messages`, "POST", {
       content: truncateDiscordMessage(content),
+    });
+  }
+
+  async onPermissionRequest(
+    request: PermissionRequest,
+  ): Promise<PermissionReply> {
+    return new Promise((resolve, reject) => {
+      const pending: PendingPermission = {
+        jobId: request.jobId,
+        resolve,
+        reject,
+        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+      };
+
+      this.pendingPermissions.set(request.jobId, pending);
+
+      this.postToThread(
+        request.threadId,
+        formatPermissionRequest(request),
+      ).catch((error) => {
+        logger.error("Failed to post permission request", {
+          jobId: request.jobId,
+          error,
+        });
+        this.pendingPermissions.delete(request.jobId);
+        reject(error);
+      });
+
+      setTimeout(() => {
+        const existing = this.pendingPermissions.get(request.jobId);
+        if (existing === pending) {
+          this.pendingPermissions.delete(request.jobId);
+          reject(new Error("Permission request timed out"));
+        }
+      }, PERMISSION_TIMEOUT_MS);
+    });
+  }
+
+  async onQuestionRequest(request: QuestionRequest): Promise<string[][]> {
+    return new Promise((resolve, reject) => {
+      const pending: PendingQuestion = {
+        jobId: request.jobId,
+        request,
+        resolve,
+        reject,
+        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+      };
+
+      this.pendingQuestions.set(request.jobId, pending);
+
+      this.postToThread(request.threadId, formatQuestionRequest(request)).catch(
+        (error) => {
+          logger.error("Failed to post question request", {
+            jobId: request.jobId,
+            error,
+          });
+          this.pendingQuestions.delete(request.jobId);
+          reject(error);
+        },
+      );
+
+      setTimeout(() => {
+        const existing = this.pendingQuestions.get(request.jobId);
+        if (existing === pending) {
+          this.pendingQuestions.delete(request.jobId);
+          reject(new Error("Question request timed out"));
+        }
+      }, PERMISSION_TIMEOUT_MS);
     });
   }
 
@@ -472,7 +503,7 @@ export class DiscordBot {
 
     const [{ Chat }, { createDiscordAdapter }, { createMemoryState }] =
       await Promise.all([
-        loadModule<ChatSdkModule>("chat"),
+        loadModule<{ Chat: ChatCtor }>("chat"),
         loadModule<DiscordAdapterModule>("@chat-adapter/discord"),
         loadModule<MemoryStateModule>("@chat-adapter/state-memory"),
       ]);
@@ -508,6 +539,16 @@ export class DiscordBot {
       preview: message.text.slice(0, 100),
     });
 
+    const permissionReply = this.tryHandlePermissionReply(message);
+    if (permissionReply.handled) {
+      return;
+    }
+
+    const questionReply = this.tryHandleQuestionReply(message);
+    if (questionReply.handled) {
+      return;
+    }
+
     const rawChannelId = await this.resolveChannelId(
       thread.channelId,
       message.threadId,
@@ -529,7 +570,11 @@ export class DiscordBot {
     }
 
     const prompt = this.extractMentionPrompt(message.text);
-    if (!prompt || prompt.startsWith("#")) {
+    if (!prompt) {
+      return;
+    }
+
+    if (prompt.startsWith("#")) {
       return;
     }
 
@@ -539,654 +584,163 @@ export class DiscordBot {
       folder: project.folder,
     });
 
-    const isLinearChannel = rawChannelId === project.linearIssuesChannelId;
     const resolvedThreadId = await this.resolveThreadId(
       thread.channelId,
       message.threadId,
     );
+
     const isNewThread = resolvedThreadId === rawChannelId;
 
-    if (
-      !isNewThread &&
-      (await this.tryHandlePendingOpenCodeInput(
-        thread,
-        resolvedThreadId,
-        prompt,
-      ))
-    ) {
-      return;
-    }
+    console.log("[THREAD_DEBUG] isNewThread check", {
+      resolvedThreadId,
+      rawChannelId,
+      isNewThread,
+      messageThreadId: message.threadId,
+      threadChannelId: thread.channelId,
+      threadId: thread.id,
+    });
 
-    if (
-      !isNewThread &&
-      (await this.tryHandlePendingAbortConfirmation(
-        thread,
-        resolvedThreadId,
-        prompt,
-      ))
-    ) {
-      return;
-    }
+    let targetThread: ThreadHandle = thread;
+    let finalThreadId = resolvedThreadId;
 
     if (isNewThread) {
-      let targetThread: ThreadHandle = thread;
-
-      // A top-level channel message should spawn a dedicated Discord thread.
-      if (resolvedThreadId === rawChannelId) {
-        try {
-          targetThread = await this.createSessionThread(rawChannelId, prompt);
-        } catch (error: unknown) {
-          const errMsg = error instanceof Error ? error.message : String(error);
-          await thread.post(
-            `Could not auto-create a thread for this session (${errMsg}). Please create a thread manually and retry.`,
-          );
-          return;
-        }
-      }
-
-      await this.handleNewSession(targetThread, {
-        projectId: project.id,
-        channelId: rawChannelId,
-        threadId: targetThread.id,
-        prompt,
-        authorTag: message.author.fullName || message.author.userName,
-        isLinearChannel,
-      });
-    } else {
-      await this.handleExistingSession(thread, {
-        projectId: project.id,
-        channelId: rawChannelId,
-        threadId: resolvedThreadId,
-        prompt,
-        authorTag: message.author.fullName || message.author.userName,
-        isLinearChannel,
-      });
-    }
-  }
-
-  private async handleNewSession(
-    thread: ThreadHandle,
-    job: MessageJob,
-  ): Promise<void> {
-    const {
-      projectId,
-      channelId,
-      threadId,
-      prompt,
-      authorTag,
-      isLinearChannel,
-    } = job;
-
-    const project = this.projectManager.getById(projectId);
-    if (!project) {
-      logger.warn("Project not found for new session", { projectId });
-      return;
-    }
-
-    logger.info("Starting new Discord OpenCode session", {
-      projectId,
-      projectName: project.name,
-      authorTag,
-      threadId,
-    });
-
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    jobRepository.create({
-      id: jobId,
-      projectId,
-      channelId,
-      threadId,
-      sessionId: null,
-      prompt,
-      authorTag,
-      status: "running",
-      createdAt: new Date(),
-      startedAt: new Date(),
-    });
-
-    await thread.post(
-      isLinearChannel
-        ? `Starting new OpenCode session for Linear issues in \`${project.name}\`...\n> ${prompt.slice(0, 200)}`
-        : `Starting new OpenCode session in \`${project.folder}\`...\n> ${prompt.slice(0, 200)}`,
-    );
-
-    const typing = await this.startTypingInterval(threadId);
-    const controller = new AbortController();
-    this.activeThreadRuns.set(threadId, {
-      jobId,
-      projectFolder: project.folder,
-      sessionId: null,
-      controller,
-      typing,
-      abortRequested: false,
-    });
-
-    try {
-      logger.info("Calling runOpenCode", { jobId, threadId, projectId });
-      const result = await runOpenCode(
-        prompt,
-        project.folder,
-        undefined,
-        this.createOpenCodeInteractionHandler(thread, threadId),
-        controller.signal,
-      );
-      logger.info("runOpenCode completed", {
-        jobId,
-        success: result.success,
-        duration: result.duration,
-        sessionId: result.sessionId,
-      });
-
-      const wasAborted = result.error === "OpenCode run aborted.";
-      if (!wasAborted) {
-        jobRepository.updateStatus(
-          jobId,
-          result.success ? "completed" : "failed",
-          {
-            sessionId: result.sessionId || null,
-            result: result.output,
-            error: result.error || null,
-            duration: result.duration,
-            completedAt: new Date(),
-          },
-        );
-
-        const reply = formatResultForDiscord(result, project.name);
-        await thread.post(reply);
-      }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error("Error in Discord OpenCode job", { jobId, error: errMsg });
-
-      if (errMsg !== "OpenCode run aborted.") {
-        jobRepository.updateStatus(jobId, "failed", {
-          error: errMsg,
-          completedAt: new Date(),
-        });
-      }
-
       try {
-        if (errMsg !== "OpenCode run aborted.") {
-          await thread.post(`Internal error: ${errMsg}`);
-        }
-      } catch (editErr: unknown) {
-        logger.error("Failed to post Discord error message", {
-          jobId,
-          error: editErr,
-        });
-      }
-    } finally {
-      this.cleanupActiveThreadRun(threadId, jobId);
-      this.cancelPendingOpenCodeInput(threadId);
-    }
-  }
-
-  private async handleExistingSession(
-    thread: ThreadHandle,
-    job: MessageJob,
-  ): Promise<void> {
-    const {
-      projectId,
-      channelId,
-      threadId,
-      prompt,
-      authorTag,
-      isLinearChannel,
-    } = job;
-
-    const activeRun = this.activeThreadRuns.get(threadId);
-    const activeJob =
-      activeRun && !activeRun.abortRequested
-        ? jobRepository.getActiveByThreadId(threadId)
-        : undefined;
-
-    if (activeRun && !activeRun.abortRequested && activeJob) {
-      const project = this.projectManager.getById(projectId);
-      if (!project) {
+        targetThread = await this.createSessionThread(rawChannelId, prompt);
+        finalThreadId = targetThread.id;
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        await thread.post(
+          `Could not auto-create a thread for this session (${errMsg}). Please create a thread manually and retry.`,
+        );
         return;
       }
+    } else {
+      await this.renameThreadIfNeeded(finalThreadId, prompt);
+    }
 
-      const promptLower = prompt.toLowerCase().trim();
-      const promptSanitized = promptLower.replace(/[*_`~#]/g, "").trim();
-      const isAbortCommand =
-        promptSanitized === "abort" ||
-        promptSanitized === "cancel" ||
-        promptSanitized === "kill" ||
-        promptSanitized === "stop";
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const isLinearChannel = rawChannelId === project.linearIssuesChannelId;
 
-      if (isAbortCommand) {
-        const existingConfirmation =
-          this.pendingAbortConfirmations.get(threadId);
-        if (existingConfirmation) {
-          await thread.post(
-            "An abort confirmation is already pending. Please confirm or deny first.",
-          );
-          return;
+    jobQueueRepository.createJob({
+      id: jobId,
+      projectId: project.id,
+      channelId: rawChannelId,
+      threadId: finalThreadId,
+      sessionId: null,
+      prompt,
+      authorTag: message.author.fullName || message.author.userName,
+      status: "pending",
+      platform: "discord",
+      sdkType: "opencode",
+      retryCount: 0,
+      createdAt: new Date(),
+    });
+
+    await targetThread.post(
+      isLinearChannel
+        ? `OpenCode session queued for Linear issues in \`${project.name}\`...\n> ${prompt.slice(0, 200)}`
+        : `OpenCode session queued for \`${project.folder}\`...\n> ${prompt.slice(0, 200)}`,
+    );
+
+    logger.info("Job queued", {
+      jobId,
+      projectId: project.id,
+      threadId: finalThreadId,
+    });
+  }
+
+  private tryHandlePermissionReply(message: ChatMessage): { handled: boolean } {
+    const prompt = message.text.trim().toLowerCase();
+
+    for (const [jobId, pending] of this.pendingPermissions.entries()) {
+      if (Date.now() > pending.expiresAt) {
+        this.pendingPermissions.delete(jobId);
+        continue;
+      }
+
+      let reply: PermissionReply | null = null;
+      if (
+        prompt === "approve" ||
+        prompt === "approve once" ||
+        prompt === "allow" ||
+        prompt === "once"
+      ) {
+        reply = "once";
+      } else if (
+        prompt === "approve always" ||
+        prompt === "allow always" ||
+        prompt === "always"
+      ) {
+        reply = "always";
+      } else if (prompt === "deny" || prompt === "reject") {
+        reply = "reject";
+      }
+
+      if (reply) {
+        this.pendingPermissions.delete(jobId);
+        pending.resolve(reply);
+        return { handled: true };
+      }
+    }
+
+    return { handled: false };
+  }
+
+  private tryHandleQuestionReply(message: ChatMessage): { handled: boolean } {
+    const lines = message.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      return { handled: false };
+    }
+
+    for (const [jobId, pending] of this.pendingQuestions.entries()) {
+      if (Date.now() > pending.expiresAt) {
+        this.pendingQuestions.delete(jobId);
+        continue;
+      }
+
+      const questions = pending.request.questions;
+      const answers: string[][] = [];
+
+      if (questions.length === 1) {
+        const question = questions[0];
+        const answer = parseQuestionAnswer(question, message.text.trim());
+        if (answer) {
+          answers.push(answer);
+        } else {
+          continue;
+        }
+      } else {
+        if (lines.length !== questions.length) {
+          continue;
         }
 
-        await thread.post(
-          "A job is currently running. Do you want to abort it?\n\n" +
-            "Reply with `@opencode confirm` to abort the running job, or `@opencode deny` to cancel this request.",
-        );
-
-        const abortConfirmationPromise = new Promise<boolean>((resolve) => {
-          this.pendingAbortConfirmations.set(threadId, {
-            jobId: activeRun.jobId,
-            sessionId: activeRun.sessionId,
-            projectFolder: activeRun.projectFolder,
-            resolve,
-            expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
-          });
-        });
-
-        const confirmed = await abortConfirmationPromise;
-        this.pendingAbortConfirmations.delete(threadId);
-
-        if (!confirmed) {
-          await thread.post("Abort cancelled. The existing job will continue.");
-          return;
-        }
-
-        await thread.post("Aborting the running job...");
-        this.abortActiveThreadRun(threadId);
-        jobRepository.updateStatus(activeRun.jobId, "failed", {
-          sessionId: null,
-          error: "Aborted by user",
-          completedAt: new Date(),
-        });
-
-        if (activeRun.sessionId) {
-          const abortResult = await abortSession(
-            activeRun.sessionId,
-            activeRun.projectFolder,
-          );
-
-          if (!abortResult.success) {
-            await thread.post(
-              `The local run was cancelled, but session cleanup failed: ${abortResult.error}. You can start a new job now.`,
-            );
-            return;
+        for (let i = 0; i < questions.length; i++) {
+          const answer = parseQuestionAnswer(questions[i], lines[i]);
+          if (!answer) {
+            continue;
           }
+          answers.push(answer);
         }
-
-        await thread.post(
-          "The running job has been aborted. You can now start a new job.",
-        );
-        return;
       }
 
-      await thread.post(
-        "A job is already running in this thread. Please wait.",
-      );
-      return;
-    }
-
-    const project = this.projectManager.getById(projectId);
-    if (!project) {
-      return;
-    }
-
-    const previousSessionJob =
-      jobRepository.getLatestWithSessionByThreadId(threadId) ||
-      jobRepository.getByThreadId(threadId);
-    const sessionId = previousSessionJob?.sessionId || undefined;
-
-    const isFirstMessageInThread = !previousSessionJob;
-    if (isFirstMessageInThread) {
-      await this.renameThread(threadId, prompt);
-    }
-
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    jobRepository.create({
-      id: jobId,
-      projectId,
-      channelId,
-      threadId,
-      sessionId: sessionId || null,
-      prompt,
-      authorTag,
-      status: "running",
-      createdAt: new Date(),
-      startedAt: new Date(),
-    });
-
-    logger.info("Handling existing Discord session job", {
-      jobId,
-      authorTag,
-      threadId,
-      promptPreview: prompt.slice(0, 80),
-      resuming: Boolean(sessionId),
-      sessionId,
-    });
-
-    await thread.post(
-      isLinearChannel
-        ? `Continuing OpenCode session for Linear issues...\n> ${prompt.slice(0, 200)}`
-        : `Continuing OpenCode session...\n> ${prompt.slice(0, 200)}`,
-    );
-
-    const typing = await this.startTypingInterval(threadId);
-    const controller = new AbortController();
-    this.activeThreadRuns.set(threadId, {
-      jobId,
-      projectFolder: project.folder,
-      sessionId: sessionId || null,
-      controller,
-      typing,
-      abortRequested: false,
-    });
-
-    try {
-      logger.info("Calling runOpenCode", { jobId, threadId, projectId });
-      const result = await runOpenCode(
-        prompt,
-        project.folder,
-        sessionId,
-        this.createOpenCodeInteractionHandler(thread, threadId),
-        controller.signal,
-      );
-      logger.info("runOpenCode completed", {
-        jobId,
-        success: result.success,
-        duration: result.duration,
-        sessionId: result.sessionId || sessionId,
-      });
-
-      const wasAborted = result.error === "OpenCode run aborted.";
-      if (!wasAborted) {
-        jobRepository.updateStatus(
-          jobId,
-          result.success ? "completed" : "failed",
-          {
-            sessionId: result.sessionId || sessionId || null,
-            result: result.output,
-            error: result.error || null,
-            duration: result.duration,
-            completedAt: new Date(),
-          },
-        );
-
-        const reply = formatResultForDiscord(result, project.name);
-        await thread.post(reply);
+      if (answers.length === questions.length) {
+        this.pendingQuestions.delete(jobId);
+        pending.resolve(answers);
+        return { handled: true };
       }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error("Error in Discord OpenCode job", { jobId, error: errMsg });
-
-      if (errMsg !== "OpenCode run aborted.") {
-        jobRepository.updateStatus(jobId, "failed", {
-          error: errMsg,
-          completedAt: new Date(),
-        });
-      }
-
-      try {
-        if (errMsg !== "OpenCode run aborted.") {
-          await thread.post(`Internal error: ${errMsg}`);
-        }
-      } catch (editErr: unknown) {
-        logger.error("Failed to post Discord error message", {
-          jobId,
-          error: editErr,
-        });
-      }
-    } finally {
-      this.cleanupActiveThreadRun(threadId, jobId);
-      this.cancelPendingOpenCodeInput(threadId);
     }
+
+    return { handled: false };
   }
 
-  private createOpenCodeInteractionHandler(
-    thread: ThreadHandle,
-    threadId: string,
-  ): OpenCodeInteractionHandler {
-    return {
-      onPermissionRequest: async (request) => {
-        this.attachSessionIdToActiveRun(threadId, request.sessionId);
-        return this.waitForPermissionReply(thread, threadId, request);
-      },
-      onQuestionRequest: async (request) => {
-        this.attachSessionIdToActiveRun(threadId, request.sessionId);
-        return this.waitForQuestionReply(thread, threadId, request);
-      },
-    };
-  }
-
-  private attachSessionIdToActiveRun(
-    threadId: string,
-    sessionId: string | undefined,
-  ): void {
-    if (!sessionId) {
-      return;
-    }
-
-    const activeRun = this.activeThreadRuns.get(threadId);
-    if (!activeRun || activeRun.sessionId === sessionId) {
-      return;
-    }
-
-    activeRun.sessionId = sessionId;
-    jobRepository.updateStatus(activeRun.jobId, "running", { sessionId });
-  }
-
-  private abortActiveThreadRun(threadId: string): void {
-    const activeRun = this.activeThreadRuns.get(threadId);
-    if (!activeRun || activeRun.abortRequested) {
-      return;
-    }
-
-    activeRun.abortRequested = true;
-    activeRun.typing.stop();
-    this.cancelPendingOpenCodeInput(
-      threadId,
-      "The OpenCode run was aborted before the input was used.",
-    );
-    activeRun.controller.abort();
-  }
-
-  private cleanupActiveThreadRun(threadId: string, jobId: string): void {
-    const activeRun = this.activeThreadRuns.get(threadId);
-    if (!activeRun || activeRun.jobId !== jobId) {
-      return;
-    }
-
-    activeRun.typing.stop();
-    this.activeThreadRuns.delete(threadId);
-  }
-
-  private async waitForPermissionReply(
-    thread: ThreadHandle,
-    threadId: string,
-    request: OpenCodePermissionRequest,
-  ): Promise<OpenCodePermissionReply> {
-    const lines = [`OpenCode needs approval for \`${request.permission}\`.`];
-
-    if (request.patterns.length) {
-      lines.push(
-        `Patterns: ${request.patterns.map((item) => `\`${item}\``).join(", ")}`,
-      );
-    }
-
-    lines.push(
-      "Reply in this thread by mentioning the bot with one of: `approve once`, `approve always`, `deny`.",
-    );
-
-    await thread.post(lines.join("\n"));
-
-    return new Promise<OpenCodePermissionReply>((resolve, reject) => {
-      this.registerPendingOpenCodeInput(threadId, {
-        kind: "permission",
-        request,
-        resolve,
-        reject,
-        expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
-      });
+  private async postToThread(threadId: string, content: string): Promise<void> {
+    await this.discordApi(`/channels/${threadId}/messages`, "POST", {
+      content: truncateDiscordMessage(content),
     });
-  }
-
-  private async waitForQuestionReply(
-    thread: ThreadHandle,
-    threadId: string,
-    request: OpenCodeQuestionRequest,
-  ): Promise<string[][]> {
-    const lines = ["OpenCode needs more input before it can continue."];
-
-    request.questions.forEach((question, index) => {
-      lines.push("");
-      lines.push(`${index + 1}. **${question.header}**`);
-      lines.push(question.question);
-
-      question.options.forEach((option, optionIndex) => {
-        lines.push(
-          `   ${optionIndex + 1}. ${option.label} - ${option.description}`,
-        );
-      });
-    });
-
-    if (request.questions.length === 1) {
-      lines.push("");
-      lines.push(
-        "Reply in this thread by mentioning the bot with the option number, option label, or a custom answer.",
-      );
-    } else {
-      lines.push("");
-      lines.push(
-        "Reply in this thread by mentioning the bot and sending one answer per line, in order.",
-      );
-    }
-
-    await thread.post(lines.join("\n"));
-
-    return new Promise<string[][]>((resolve, reject) => {
-      this.registerPendingOpenCodeInput(threadId, {
-        kind: "question",
-        request,
-        resolve,
-        reject,
-        expiresAt: Date.now() + PENDING_OPENCODE_INPUT_TIMEOUT_MS,
-      });
-    });
-  }
-
-  private registerPendingOpenCodeInput(
-    threadId: string,
-    pending: PendingOpenCodeInput,
-  ): void {
-    const existing = this.pendingOpenCodeInputs.get(threadId);
-    if (existing) {
-      existing.reject(
-        new Error("Another approval request replaced the pending one."),
-      );
-    }
-
-    this.pendingOpenCodeInputs.set(threadId, pending);
-  }
-
-  private cancelPendingOpenCodeInput(
-    threadId: string,
-    reason = "The OpenCode run ended before the input was used.",
-  ): void {
-    const pending = this.pendingOpenCodeInputs.get(threadId);
-    if (!pending) {
-      return;
-    }
-
-    this.pendingOpenCodeInputs.delete(threadId);
-    pending.reject(new Error(reason));
-  }
-
-  private async tryHandlePendingOpenCodeInput(
-    thread: ThreadHandle,
-    threadId: string,
-    prompt: string,
-  ): Promise<boolean> {
-    const pending = this.pendingOpenCodeInputs.get(threadId);
-    if (!pending) {
-      return false;
-    }
-
-    if (Date.now() > pending.expiresAt) {
-      this.pendingOpenCodeInputs.delete(threadId);
-      pending.reject(new Error("Timed out waiting for Discord input."));
-      await thread.post(
-        "That approval request expired. Re-run the task if needed.",
-      );
-      return true;
-    }
-
-    if (pending.kind === "permission") {
-      const reply = parsePermissionReply(prompt);
-      if (!reply) {
-        await thread.post(
-          "Reply with `approve once`, `approve always`, or `deny` while mentioning the bot.",
-        );
-        return true;
-      }
-
-      this.pendingOpenCodeInputs.delete(threadId);
-      pending.resolve(reply);
-      await thread.post(`Recorded approval: \`${reply}\`.`);
-      return true;
-    }
-
-    const answers = parseQuestionAnswers(pending.request, prompt);
-    if (!answers) {
-      await thread.post(
-        pending.request.questions.length === 1
-          ? "Could not parse that answer. Reply with the option number, option label, or a custom answer while mentioning the bot."
-          : "Could not parse that answer. Reply with one answer per line, in the same order, while mentioning the bot.",
-      );
-      return true;
-    }
-
-    this.pendingOpenCodeInputs.delete(threadId);
-    pending.resolve(answers);
-    await thread.post("Recorded input. Continuing the OpenCode run.");
-    return true;
-  }
-
-  private async tryHandlePendingAbortConfirmation(
-    thread: ThreadHandle,
-    threadId: string,
-    prompt: string,
-  ): Promise<boolean> {
-    const pending = this.pendingAbortConfirmations.get(threadId);
-    if (!pending) {
-      return false;
-    }
-
-    if (Date.now() > pending.expiresAt) {
-      this.pendingAbortConfirmations.delete(threadId);
-      await thread.post(
-        "The abort request timed out. Please try again if you still want to abort.",
-      );
-      return true;
-    }
-
-    const promptLower = prompt.toLowerCase().trim();
-    const isConfirm =
-      promptLower === "confirm" ||
-      promptLower === "yes" ||
-      promptLower === "y" ||
-      promptLower === "confirm abort";
-    const isDeny =
-      promptLower === "deny" ||
-      promptLower === "no" ||
-      promptLower === "n" ||
-      promptLower === "cancel" ||
-      promptLower === "don't abort" ||
-      promptLower === "dont abort";
-
-    if (!isConfirm && !isDeny) {
-      await thread.post(
-        "Please reply with `@opencode confirm` to abort the job, or `@opencode deny` to cancel this request.",
-      );
-      return true;
-    }
-
-    this.pendingAbortConfirmations.delete(threadId);
-    pending.resolve(isConfirm);
-    return true;
   }
 
   private async resolveChannelId(
@@ -1457,28 +1011,6 @@ export class DiscordBot {
     }
   }
 
-  private async sendTyping(channelId: string): Promise<void> {
-    await this.discordApi(`/channels/${channelId}/typing`, "POST");
-  }
-
-  private async startTypingInterval(
-    channelId: string,
-    intervalMs = 5000,
-  ): Promise<TypingHandle> {
-    await this.sendTyping(channelId);
-    const intervalId = setInterval(async () => {
-      try {
-        await this.sendTyping(channelId);
-      } catch {
-        clearInterval(intervalId);
-      }
-    }, intervalMs);
-
-    return {
-      stop: () => clearInterval(intervalId),
-    };
-  }
-
   private async discordApi(
     path: string,
     method: "GET" | "POST" | "PATCH",
@@ -1533,6 +1065,8 @@ export class DiscordBot {
       .toLowerCase();
     const threadName = sanitized || `session-${Date.now()}`;
 
+    console.log(threadName, "thread name name");
+
     const created = (await this.discordApi(
       `/channels/${channelId}/threads`,
       "POST",
@@ -1552,6 +1086,8 @@ export class DiscordBot {
     await this.discordApi(`/channels/${created.id}/messages`, "POST", {
       content: formatSessionThreadTitle(prompt),
     });
+
+    await this.renameThread(created.id, prompt);
 
     return {
       id: created.id,
@@ -1585,90 +1121,58 @@ export class DiscordBot {
       .toLowerCase();
     const threadName = sanitized || `session-${Date.now()}`;
 
+    console.log("[RENAME_THREAD] Attempting to rename thread", {
+      threadId,
+      threadName,
+      prompt: prompt.slice(0, 50),
+    });
+
     try {
       await this.discordApi(`/channels/${threadId}`, "PATCH", {
         name: threadName,
       });
+      console.log("[RENAME_THREAD] Success", { threadId, threadName });
     } catch (error) {
+      console.log("[RENAME_THREAD] Failed", { threadId, error });
       logger.warn("Failed to rename thread", { threadId, error });
     }
   }
-}
 
-function parsePermissionReply(prompt: string): OpenCodePermissionReply | null {
-  const normalized = prompt.trim().toLowerCase();
+  private async renameThreadIfNeeded(
+    threadId: string,
+    prompt: string,
+  ): Promise<void> {
+    try {
+      const channel = (await this.discordApi(
+        `/channels/${threadId}`,
+        "GET",
+      )) as { name: string } | null;
 
-  if (
-    normalized === "approve" ||
-    normalized === "approve once" ||
-    normalized === "allow" ||
-    normalized === "allow once" ||
-    normalized === "once"
-  ) {
-    return "once";
-  }
+      if (!channel?.name) return;
 
-  if (
-    normalized === "approve always" ||
-    normalized === "allow always" ||
-    normalized === "always"
-  ) {
-    return "always";
-  }
+      const isTimestampName =
+        /^Thread\s+\d{1,2}\/\d{1,2}\/\d{4},?\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM)?$/i.test(
+          channel.name,
+        );
 
-  if (
-    normalized === "deny" ||
-    normalized === "reject" ||
-    normalized === "deny once"
-  ) {
-    return "reject";
-  }
-
-  return null;
-}
-
-function parseQuestionAnswers(
-  request: OpenCodeQuestionRequest,
-  prompt: string,
-): string[][] | null {
-  const lines = prompt
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) {
-    return null;
-  }
-
-  if (request.questions.length === 1) {
-    const answer = parseSingleQuestionAnswer(
-      request.questions[0],
-      prompt.trim(),
-    );
-    return answer ? [answer] : null;
-  }
-
-  if (lines.length !== request.questions.length) {
-    return null;
-  }
-
-  const answers: string[][] = [];
-  for (let index = 0; index < request.questions.length; index += 1) {
-    const parsed = parseSingleQuestionAnswer(
-      request.questions[index],
-      lines[index],
-    );
-    if (!parsed) {
-      return null;
+      if (isTimestampName) {
+        console.log(
+          "[RENAME_THREAD_IF_NEEDED] Found timestamp-named thread, renaming",
+          { threadId, currentName: channel.name },
+        );
+        await this.renameThread(threadId, prompt);
+      }
+    } catch (error) {
+      console.log("[RENAME_THREAD_IF_NEEDED] Failed to check/rename", {
+        threadId,
+        error,
+      });
     }
-    answers.push(parsed);
   }
-
-  return answers;
 }
 
-function parseSingleQuestionAnswer(
-  question: OpenCodeQuestionRequest["questions"][number],
+function parseQuestionAnswer(
+  question: QuestionRequest["questions"][number],
   rawAnswer: string,
 ): string[] | null {
   const normalized = rawAnswer.trim();
@@ -1719,6 +1223,52 @@ function parseSingleQuestionAnswer(
   return parsed.length ? parsed : null;
 }
 
+function formatPermissionRequest(request: PermissionRequest): string {
+  const lines = [`OpenCode needs approval for \`${request.permission}\`.`];
+
+  if (request.patterns.length) {
+    lines.push(
+      `Patterns: ${request.patterns.map((item) => `\`${item}\``).join(", ")}`,
+    );
+  }
+
+  lines.push(
+    "Reply in this thread by mentioning the bot with one of: `approve once`, `approve always`, `deny`.",
+  );
+
+  return lines.join("\n");
+}
+
+function formatQuestionRequest(request: QuestionRequest): string {
+  const lines = ["OpenCode needs more input before it can continue."];
+
+  request.questions.forEach((question, index) => {
+    lines.push("");
+    lines.push(`${index + 1}. **${question.header}**`);
+    lines.push(question.question);
+
+    question.options.forEach((option, optionIndex) => {
+      lines.push(
+        `   ${optionIndex + 1}. ${option.label} - ${option.description}`,
+      );
+    });
+  });
+
+  if (request.questions.length === 1) {
+    lines.push("");
+    lines.push(
+      "Reply in this thread by mentioning the bot with the option number, option label, or a custom answer.",
+    );
+  } else {
+    lines.push("");
+    lines.push(
+      "Reply in this thread by mentioning the bot and sending one answer per line, in order.",
+    );
+  }
+
+  return lines.join("\n");
+}
+
 async function loadModule<TModule>(specifier: string): Promise<TModule> {
   const dynamicImport = new Function(
     "moduleSpecifier",
@@ -1751,6 +1301,7 @@ function isDiscordSnowflake(value: string): boolean {
 }
 
 function formatSessionThreadTitle(prompt: string): string {
+  const SESSION_THREAD_TITLE_PREVIEW_LENGTH = 120;
   const normalized = prompt.replace(/\s+/g, " ").trim();
   if (!normalized) {
     return "session";

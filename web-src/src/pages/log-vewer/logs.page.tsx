@@ -1,4 +1,16 @@
 import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export const LogsPage = () => {
   const [logs, setLogs] = useState<string>("");
@@ -28,49 +40,45 @@ export const LogsPage = () => {
     }
   };
 
-  const handleRefresh = () => {
-    fetchLogs();
-  };
-
-  const handleLogTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setLogType(e.target.value as "debug" | "error");
-  };
-
   return (
-    <div className="p-6 w-full max-w-4xl">
-      <h1 className="text-2xl font-bold mb-4">Log Viewer</h1>
-
-      <div className="mb-4 flex items-center gap-3">
-        <label htmlFor="log-type" className="text-sm font-medium">
-          Log Type:
-        </label>
-        <select
-          id="log-type"
-          value={logType}
-          onChange={handleLogTypeChange}
-          className="border border-gray-600 rounded px-3 py-1 bg-gray-800 text-white"
-        >
-          <option value="debug">Debug</option>
-          <option value="error">Error</option>
-        </select>
-        <button
-          onClick={handleRefresh}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
-        >
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded text-red-300">
-          Error: {error}
+    <Card className="m-6 w-full max-w-4xl">
+      <CardHeader>
+        <CardTitle>Log Viewer</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <Label htmlFor="log-type">Log Type:</Label>
+          <Select
+            value={logType}
+            onValueChange={(value: string) =>
+              setLogType(value as "debug" | "error")
+            }
+          >
+            <SelectTrigger id="log-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="debug">Debug</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={fetchLogs} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
         </div>
-      )}
 
-      <div className="border border-gray-700 rounded bg-gray-900 p-4 h-96 overflow-auto">
-        <pre className="text-sm text-green-400 whitespace-pre-wrap">{logs}</pre>
-      </div>
-    </div>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>Error: {error}</AlertDescription>
+          </Alert>
+        )}
+
+        <ScrollArea className="h-96 w-full rounded-md border bg-muted/30">
+          <pre className="p-4 text-sm text-green-400 whitespace-pre-wrap">
+            {logs}
+          </pre>
+        </ScrollArea>
+      </CardContent>
+    </Card>
   );
 };

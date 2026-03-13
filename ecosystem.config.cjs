@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "discord-opencode-bridge",
+      name: "maximus",
       script: "dist/bundle.js",
       cwd: __dirname,
       instances: 1,

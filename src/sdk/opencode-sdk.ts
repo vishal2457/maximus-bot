@@ -155,6 +155,14 @@ class OpencodeSdk extends BaseCodingSdk {
       return await this.runtimePromise;
     } catch (error) {
       this.runtimePromise = null;
+      if (this.runtime) {
+        try {
+          this.runtime.server.close();
+        } catch {
+          //Ignore close errors
+        }
+        this.runtime = null;
+      }
       throw error;
     }
   }
@@ -269,6 +277,7 @@ class OpencodeSdk extends BaseCodingSdk {
         });
 
         if (errMsg === "OpenCode run aborted.") {
+          await this.resetRuntime();
           return {
             success: false,
             output: "",
@@ -280,6 +289,7 @@ class OpencodeSdk extends BaseCodingSdk {
         }
 
         if (!canRetry) {
+          await this.resetRuntime();
           return {
             success: false,
             output: "",
@@ -293,6 +303,7 @@ class OpencodeSdk extends BaseCodingSdk {
       }
     }
 
+    await this.resetRuntime();
     return {
       success: false,
       output: "",
