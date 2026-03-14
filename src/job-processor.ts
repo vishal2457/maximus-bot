@@ -1,14 +1,17 @@
 import { getDb } from "./db";
-import { JobPoller, setPermissionHandler } from "./workers/job-poller";
+import {
+  JobQueueManager,
+  setPermissionHandler,
+} from "./workers/job-queue-manager";
 import { logger } from "./shared/logger";
 import type { PermissionHandler } from "./permission-handler";
 
 class JobProcessor {
-  private poller: JobPoller;
+  private queueManager: JobQueueManager;
   private isRunning = false;
 
   constructor() {
-    this.poller = new JobPoller();
+    this.queueManager = new JobQueueManager();
   }
 
   async start(): Promise<void> {
@@ -21,7 +24,7 @@ class JobProcessor {
 
     getDb();
 
-    await this.poller.start();
+    await this.queueManager.start();
     this.isRunning = true;
 
     logger.info("JobProcessor started");
@@ -33,7 +36,7 @@ class JobProcessor {
     }
 
     logger.info("Stopping JobProcessor");
-    await this.poller.stop();
+    await this.queueManager.stop();
     this.isRunning = false;
 
     logger.info("JobProcessor stopped");
@@ -44,7 +47,7 @@ class JobProcessor {
   }
 
   getStats() {
-    return this.poller.getStats();
+    return this.queueManager.getStats();
   }
 }
 

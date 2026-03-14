@@ -9,11 +9,7 @@ import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
 import { logger } from "./shared/logger";
 import * as fs from "fs";
 import * as path from "path";
-import {
-  setSecret,
-  deleteSecret,
-  getAllSecrets,
-} from "./secrets-manager";
+import { setSecret, deleteSecret, getAllSecrets } from "./secrets-manager";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -149,12 +145,6 @@ export function createServer(
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
     }
-  });
-
-  // Reload projects.json from disk
-  app.post("/projects/reload", requireSecret, (_req, res) => {
-    projectManager.reload();
-    res.json({ ok: true, projects: projectManager.getAll().length });
   });
 
   // Sync channels (create any missing ones)

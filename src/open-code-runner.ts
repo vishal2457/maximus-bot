@@ -1,12 +1,6 @@
-import fs from "fs";
-import net from "net";
-import path from "path";
-import type { OpencodeClient, ServerOptions } from "@opencode-ai/sdk/v2" with {
-  "resolution-mode": "import",
-};
-import { OpenCodeResult } from "./types";
+import { CodingSdkOptions, OpencodeSdk } from "./sdk/opencode-sdk";
 import { logger } from "./shared/logger";
-import { OpencodeSdk, CodingSdkOptions } from "./sdk/opencode-sdk";
+import { OpenCodeResult } from "./types";
 
 // Constants for configuration
 const MAX_OUTPUT_LENGTH = parsePositiveInt(

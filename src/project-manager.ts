@@ -1,11 +1,9 @@
-import fs from "fs";
-import path from "path";
-import { projectRepository } from "./repositories/project-repository";
 import { getDb } from "./db";
-import { type Project, type NewProject } from "./db/project.schema";
+import { type NewProject, type Project } from "./db/project.schema";
+import { projectRepository } from "./repositories/project-repository";
 import { logger } from "./shared/logger";
 
-const PROJECTS_FILE = process.env.PROJECTS_FILE || "./projects.json";
+const DEFAULT_PROJECT_NAME = "maximus-bot";
 
 function mapDbProject(p: Project): Project {
   return {
@@ -25,61 +23,56 @@ export class ProjectManager {
   private projects: Project[] = [];
   private projectsById: Map<string, Project> = new Map();
   private projectsByChannelId: Map<string, Project> = new Map();
-  private filePath: string;
 
   constructor() {
-    this.filePath = path.resolve(process.cwd(), PROJECTS_FILE);
-    this.loadFromJson();
-    this.seedDatabase();
+    this.ensureDefaultProject();
   }
 
-  private loadFromJson(): void {
-    if (!fs.existsSync(this.filePath)) {
-      logger.warn("projects.json not found, creating empty file", {
-        filePath: this.filePath,
-      });
-      fs.writeFileSync(this.filePath, JSON.stringify([], null, 2));
-    }
-    const raw = fs.readFileSync(this.filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Project[];
-    this.projects = parsed.map((project) => ({
-      id: project.id || "",
-      name: project.name || "",
-      description: project.description || "",
-      folder: project.folder || "",
-      discordCategoryId: project.discordCategoryId || "",
-      developmentChannelId: project.developmentChannelId || "",
-      linearIssuesChannelId: project.linearIssuesChannelId || "",
-      linearProjectId: project.linearProjectId || "",
-      linearProjectName: project.linearProjectName || "",
-    }));
-    this.rebuildIndexes();
-    logger.info("Loaded projects from JSON", {
-      count: this.projects.length,
-      filePath: this.filePath,
-    });
-  }
-
-  private seedDatabase(): void {
+  private ensureDefaultProject(): void {
     try {
       getDb();
       const dbProjects = projectRepository.getAll();
 
-      if (dbProjects.length === 0 && this.projects.length > 0) {
-        logger.info("Seeding database from JSON", {
-          count: this.projects.length,
+      if (dbProjects.length === 0) {
+        const workspacePath = process.cwd();
+        const defaultProject: Project = {
+          id: "default",
+          name: DEFAULT_PROJECT_NAME,
+          description: "Default project",
+          folder: workspacePath,
+          discordCategoryId: "",
+          developmentChannelId: "",
+          linearIssuesChannelId: "",
+          linearProjectId: "",
+          linearProjectName: "",
+        };
+
+        projectRepository.create({
+          id: defaultProject.id,
+          name: defaultProject.name,
+          description: defaultProject.description,
+          folder: defaultProject.folder,
         });
-        projectRepository.seedFromJson(this.projects);
-        logger.info("Database seeded successfully");
-      } else if (dbProjects.length > 0) {
-        logger.info("Database already contains projects", {
+
+        logger.info("Created default project", {
+          projectId: defaultProject.id,
+          name: defaultProject.name,
+          folder: defaultProject.folder,
+        });
+
+        this.projects = [defaultProject];
+      } else {
+        this.projects = dbProjects.map(mapDbProject);
+        logger.info("Loaded projects from database", {
           count: dbProjects.length,
         });
       }
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error("Error seeding database", { error: errMsg });
+      logger.error("Error initializing projects", { error: errMsg });
     }
+
+    this.rebuildIndexes();
   }
 
   private rebuildIndexes(): void {
@@ -94,11 +87,6 @@ export class ProjectManager {
         this.projectsByChannelId.set(project.linearIssuesChannelId, project);
       }
     }
-  }
-
-  reload(): void {
-    this.loadFromJson();
-    this.seedDatabase();
   }
 
   getAll(): Project[] {
@@ -194,7 +182,7 @@ export class ProjectManager {
     };
 
     this.projects.push(newProject);
-    this.saveToJson();
+    this.rebuildIndexes();
 
     projectRepository.create(project);
 
@@ -204,25 +192,6 @@ export class ProjectManager {
     });
 
     return newProject;
-  }
-
-  private saveToJson(): void {
-    const projectsToSave = this.projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      folder: p.folder,
-      discordCategoryId: p.discordCategoryId || undefined,
-      developmentChannelId: p.developmentChannelId || undefined,
-      linearIssuesChannelId: p.linearIssuesChannelId || undefined,
-      linearProjectId: p.linearProjectId || undefined,
-      linearProjectName: p.linearProjectName || undefined,
-    }));
-
-    fs.writeFileSync(this.filePath, JSON.stringify(projectsToSave, null, 2));
-    logger.info("Saved projects to JSON", {
-      count: projectsToSave.length,
-    });
   }
 }
 

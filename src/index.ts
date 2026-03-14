@@ -54,7 +54,6 @@ async function main(): Promise<void> {
         "GET /health",
         ...(discordBot ? ["POST /api/webhooks/discord"] : []),
         "GET /projects",
-        "POST /projects/reload",
         "POST /sync",
         'POST /run/:projectId {"prompt":"..."}',
         "GET /logs/:type",
@@ -70,10 +69,6 @@ async function main(): Promise<void> {
     });
   }
   logger.info("Registered route", { method: "GET", path: "/projects" });
-  logger.info("Registered route", {
-    method: "POST",
-    path: "/projects/reload",
-  });
   logger.info("Registered route", { method: "POST", path: "/sync" });
   logger.info("Registered route", {
     method: "POST",
