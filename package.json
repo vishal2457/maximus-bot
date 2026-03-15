@@ -1,18 +1,53 @@
 {
-  "name": "maximus",
+  "name": "mx-bot",
   "version": "1.0.0",
   "description": "Discord bot that routes messages to OpenCode in project workspaces",
+  "author": "Vishal Acharya <vishal@maximus.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vishal2457/mx-bot"
+  },
+  "homepage": "https://github.com/vishal2457/mx-bot#readme",
+  "bugs": {
+    "url": "https://github.com/vishal2457/mx-bot/issues"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "opencode",
+    "ai",
+    "automation"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "mx-bot": "dist/cli.js"
+  },
+  "main": "dist/bundle.js",
+  "files": [
+    "dist",
+    ".env.example"
+  ],
+  "private": false,
   "scripts": {
     "build": "node build.js",
+    "build:cli": "node build.js",
     "clean": "rm -rf dist",
     "dev": "nodemon --exec \"node -r esbuild-register ./src/index.ts\" -e .ts",
     "start": "node -r esbuild-register ./src/index.ts",
-    "pm2:start": "pnpm run build && pm2 start ecosystem.config.js --env production",
-    "pm2:restart": "pnpm run build && pm2 reload ecosystem.config.js --env production",
+    "run": "node dist/cli.js",
+    "pm2:start": "pnpm run build && pnpm web:build && pm2 start ecosystem.config.js --env production",
+    "pm2:restart": "pnpm run build && pnpm web:build && pm2 reload ecosystem.config.js --env production",
     "pm2:stop": "pm2 delete maximus",
     "pm2:ls": "pm2 ls",
     "format": "prettier --write .",
-    "lint": "prettier --check ."
+    "lint": "prettier --check .",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "web:build": "cd web-src && pnpm build"
   },
   "dependencies": {
     "@chat-adapter/discord": "^4.20.1",
@@ -21,11 +56,14 @@
     "@opencode-ai/sdk": "^1.2.24",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.6.2",
+    "cac": "^6.7.14",
     "chat": "^4.20.1",
+    "cors": "^2.8.6",
     "discord.js": "^14.19.3",
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.45.1",
     "express": "^4.18.2",
+    "extract-zip": "^2.0.1",
     "keytar": "^7.9.0",
     "p-queue": "^9.1.0",
     "winston": "^3.19.0",
@@ -33,6 +71,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/node": "^25.4.0",
     "drizzle-kit": "^0.31.9",

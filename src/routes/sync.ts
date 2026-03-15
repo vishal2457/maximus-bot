@@ -1,5 +1,6 @@
 import { Router, Response as ExpressResponse } from "express";
 import { DiscordBot } from "../bots/discord-bot";
+import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createSyncRouter(discordBot: DiscordBot | null): Router {
   const router = Router();
@@ -9,10 +10,10 @@ export function createSyncRouter(discordBot: DiscordBot | null): Router {
       if (discordBot) {
         await discordBot.syncChannels();
       }
-      res.json({ ok: true });
+      success(res, { ok: true }, "Sync completed successfully");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 

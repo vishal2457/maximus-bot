@@ -3,6 +3,7 @@ import express, {
   Response as ExpressResponse,
   NextFunction,
 } from "express";
+import cors from "cors";
 import { ProjectManager } from "./project-manager";
 import { DiscordBot } from "./bots/discord-bot";
 import * as fs from "fs";
@@ -18,6 +19,7 @@ import {
   createCronJobsRouter,
   createJobsRouter,
 } from "./routes";
+import { success, error, StatusCodes } from "./shared/api-response";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -28,9 +30,9 @@ export function createServer(
   const app = express();
 
   const webBuildPath = path.join(__dirname, "..", "dist", "web");
-  if (fs.existsSync(webBuildPath)) {
-    app.use(express.static(webBuildPath));
-  }
+
+  app.use(cors());
+  app.use(express.json());
 
   if (discordBot) {
     app.post(
@@ -41,16 +43,13 @@ export function createServer(
           const webRequest = toWebRequest(req);
           const webResponse = await discordBot.handleWebhook(webRequest);
           await writeWebResponse(res, webResponse);
-        } catch (error: unknown) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          res.status(500).json({ error: message });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          error(res, message, StatusCodes.INTERNAL_SERVER_ERROR);
         }
       },
     );
   }
-
-  app.use(express.json());
 
   function requireSecret(
     req: ExpressRequest,
@@ -63,7 +62,7 @@ export function createServer(
     }
     const sig = req.headers["x-webhook-secret"];
     if (sig !== WEBHOOK_SECRET) {
-      res.status(401).json({ error: "Unauthorized" });
+      error(res, "Unauthorized", StatusCodes.UNAUTHORIZED);
       return;
     }
     next();

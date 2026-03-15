@@ -1,9 +1,7 @@
 import type { Job, JobPlatform, SdkType } from "../db/job.schema";
 import { projectManager } from "../project-manager";
 import { jobQueueRepository } from "../repositories/job-queue-repository";
-import type {
-  CodingSdkInteractionHandler
-} from "../sdk/base-sdk";
+import type { CodingSdkInteractionHandler } from "../sdk/base-sdk";
 import { CodexSdk } from "../sdk/codex-sdk";
 import { OpencodeSdk } from "../sdk/opencode-sdk";
 import { createNotificationService } from "../services/notification-service";
@@ -101,6 +99,15 @@ export async function executeJob(
   const notificationService = createNotificationService(
     job.platform as JobPlatform,
   );
+
+  try {
+    await notificationService.typing(job.threadId);
+  } catch (typingError) {
+    logger.debug("Failed to send typing indicator", {
+      jobId: job.id,
+      error: typingError,
+    });
+  }
 
   try {
     await notificationService.notify(

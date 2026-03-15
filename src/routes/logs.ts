@@ -5,6 +5,7 @@ import {
 } from "express";
 import * as fs from "fs";
 import * as path from "path";
+import { error, StatusCodes } from "../shared/api-response";
 
 export function createLogsRouter(): Router {
   const router = Router();
@@ -12,9 +13,11 @@ export function createLogsRouter(): Router {
   router.get("/:type", async (_req: ExpressRequest, res: ExpressResponse) => {
     const { type } = _req.params;
     if (!["debug", "error"].includes(type)) {
-      res
-        .status(400)
-        .json({ error: "Invalid log type. Use 'debug' or 'error'." });
+      error(
+        res,
+        "Invalid log type. Use 'debug' or 'error'.",
+        StatusCodes.BAD_REQUEST,
+      );
       return;
     }
 
@@ -23,7 +26,11 @@ export function createLogsRouter(): Router {
       const files = fs.readdirSync(logDir);
       const logFiles = files.filter((file) => file.endsWith(".log"));
       if (logFiles.length === 0) {
-        res.status(404).json({ error: `No log files found for type ${type}` });
+        error(
+          res,
+          `No log files found for type ${type}`,
+          StatusCodes.NOT_FOUND,
+        );
         return;
       }
       logFiles.sort().reverse();
@@ -32,9 +39,9 @@ export function createLogsRouter(): Router {
       const logContent = fs.readFileSync(logPath, "utf8");
       res.setHeader("Content-Type", "text/plain");
       res.send(logContent);
-    } catch (error) {
-      console.error("Error reading log file:", error);
-      res.status(500).json({ error: "Failed to read log file" });
+    } catch (err) {
+      console.error("Error reading log file:", err);
+      error(res, "Failed to read log file", StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 

@@ -4,6 +4,7 @@ import {
   Response as ExpressResponse,
 } from "express";
 import { setSecret, deleteSecret, getAllSecrets } from "../secrets-manager";
+import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createSecretsRouter(): Router {
   const router = Router();
@@ -15,10 +16,10 @@ export function createSecretsRouter(): Router {
       for (const [key, value] of Object.entries(secrets)) {
         result[key] = value ?? "";
       }
-      res.json(result);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: msg });
+      success(res, result, "Secrets fetched successfully");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 
@@ -26,16 +27,16 @@ export function createSecretsRouter(): Router {
     const { key, value } = req.body as { key?: string; value?: string };
 
     if (!key || !value) {
-      res.status(400).json({ error: "key and value are required" });
+      error(res, "key and value are required", StatusCodes.BAD_REQUEST);
       return;
     }
 
     try {
       await setSecret(key, value);
-      res.json({ ok: true });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: msg });
+      success(res, { ok: true }, "Secret set successfully");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 
@@ -43,16 +44,16 @@ export function createSecretsRouter(): Router {
     const { key } = req.params;
 
     if (!key) {
-      res.status(400).json({ error: "key is required" });
+      error(res, "key is required", StatusCodes.BAD_REQUEST);
       return;
     }
 
     try {
       await deleteSecret(key);
-      res.json({ ok: true });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: msg });
+      success(res, { ok: true }, "Secret deleted successfully");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 

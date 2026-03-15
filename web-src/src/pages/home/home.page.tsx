@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,46 +9,24 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { SIDEBAR_ROUTES } from "@/components/router/router-data";
-
-type AgentType = "opencode" | "codex";
+import { useAgent, useSetAgent, type AgentType } from "@/lib/api";
 
 export const HomePage = () => {
   const navigate = useNavigate();
-  const [activeAgent, setActiveAgent] = useState<AgentType>("opencode");
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: agentData, isLoading } = useAgent();
+  const setAgentMutation = useSetAgent();
 
-  useEffect(() => {
-    fetchAgent();
-  }, []);
+  const activeAgent = agentData?.activeAgent ?? "opencode";
 
-  const fetchAgent = async () => {
-    try {
-      const response = await fetch("/api/agent");
-      if (!response.ok) throw new Error("Failed to fetch agent");
-      const data = await response.json();
-      setActiveAgent(data.activeAgent);
-    } catch (error) {
-      console.error("Error fetching agent:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const setAgent = async (agent: AgentType) => {
-    try {
-      const response = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent }),
-      });
-      if (!response.ok) throw new Error("Failed to set agent");
-      const data = await response.json();
-      setActiveAgent(data.activeAgent);
-      toast.success(`Active agent changed to ${data.activeAgent}`);
-    } catch (error) {
-      console.error("Error setting agent:", error);
-      toast.error("Failed to change agent");
-    }
+  const handleSetAgent = (agent: AgentType) => {
+    setAgentMutation.mutate(agent, {
+      onSuccess: (data) => {
+        toast.success(`Active agent changed to ${data.activeAgent}`);
+      },
+      onError: () => {
+        toast.error("Failed to change agent");
+      },
+    });
   };
 
   return (
@@ -63,16 +40,22 @@ export const HomePage = () => {
         <CardContent className="flex gap-4">
           <Button
             variant={activeAgent === "opencode" ? "default" : "outline"}
-            onClick={() => setAgent("opencode")}
-            disabled={isLoading || activeAgent === "opencode"}
+            onClick={() => handleSetAgent("opencode")}
+            disabled={
+              isLoading ||
+              setAgentMutation.isPending ||
+              activeAgent === "opencode"
+            }
             className="flex-1"
           >
             OpenCode
           </Button>
           <Button
             variant={activeAgent === "codex" ? "default" : "outline"}
-            onClick={() => setAgent("codex")}
-            disabled={isLoading || activeAgent === "codex"}
+            onClick={() => handleSetAgent("codex")}
+            disabled={
+              isLoading || setAgentMutation.isPending || activeAgent === "codex"
+            }
             className="flex-1"
           >
             Codex

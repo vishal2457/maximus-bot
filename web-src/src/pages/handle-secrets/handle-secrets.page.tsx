@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v4";
@@ -13,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useSecrets, useSaveSecret } from "@/lib/api";
 
 const discordSecretsSchema = z.object({
   discord_bot_token: z.string().min(1, "Bot Token is required"),
@@ -45,11 +45,14 @@ const SECRET_KEYS: (keyof DiscordSecretsForm)[] = [
 ];
 
 export const DiscordConfigPage = () => {
+  const { data: secrets } = useSecrets();
+  const saveSecretMutation = useSaveSecret();
+
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
-    setValue,
+    formState: { errors },
+    reset,
   } = useForm<DiscordSecretsForm>({
     resolver: zodResolver(discordSecretsSchema),
     defaultValues: {
@@ -61,44 +64,27 @@ export const DiscordConfigPage = () => {
     },
   });
 
-  useEffect(() => {
-    fetchSecrets();
-  }, []);
-
-  const fetchSecrets = async () => {
-    try {
-      const response = await fetch("/api/secrets");
-      if (!response.ok) {
-        throw new Error("Failed to fetch secrets");
-      }
-      const data = await response.json();
-      for (const key of SECRET_KEYS) {
-        setValue(key, data[key] || "");
-      }
-    } catch (error) {
-      console.error("Error fetching secrets:", error);
-      toast.error("Failed to load Discord configuration");
-    }
-  };
+  if (secrets && Object.keys(secrets).length > 0) {
+    const formValues: DiscordSecretsForm = {
+      discord_bot_token: secrets.discord_bot_token || "",
+      discord_guild_id: secrets.discord_guild_id || "",
+      discord_application_id: secrets.discord_application_id || "",
+      discord_public_key: secrets.discord_public_key || "",
+      discord_webhook_url: secrets.discord_webhook_url || "",
+    };
+    reset(formValues);
+  }
 
   const onSubmit = async (data: DiscordSecretsForm) => {
     try {
       for (const key of SECRET_KEYS) {
         const value = data[key];
         if (value) {
-          const response = await fetch("/api/secrets", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key, value }),
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to save ${key}`);
-          }
+          await saveSecretMutation.mutateAsync({ key, value });
         }
       }
       toast.success("Discord configuration saved");
-    } catch (error) {
-      console.error("Error saving secrets:", error);
+    } catch {
       toast.error("Failed to save configuration");
     }
   };
@@ -133,8 +119,14 @@ export const DiscordConfigPage = () => {
                 )}
               </div>
             ))}
-            <Button type="submit" disabled={isSubmitting} className="mt-4">
-              {isSubmitting ? "Saving..." : "Save Configuration"}
+            <Button
+              type="submit"
+              disabled={saveSecretMutation.isPending}
+              className="mt-4"
+            >
+              {saveSecretMutation.isPending
+                ? "Saving..."
+                : "Save Configuration"}
             </Button>
           </form>
         </CardContent>

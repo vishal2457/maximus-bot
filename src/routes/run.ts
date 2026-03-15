@@ -7,6 +7,7 @@ import { ProjectManager } from "../project-manager";
 import { DiscordBot } from "../bots/discord-bot";
 import { runOpenCode, formatResultForDiscord } from "../open-code-runner";
 import { logger } from "../shared/logger";
+import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createRunRouter(
   projectManager: ProjectManager,
@@ -21,13 +22,13 @@ export function createRunRouter(
       const { prompt } = req.body as { prompt?: string };
 
       if (!prompt) {
-        res.status(400).json({ error: "prompt is required" });
+        error(res, "prompt is required", StatusCodes.BAD_REQUEST);
         return;
       }
 
       const project = projectManager.getById(projectId);
       if (!project) {
-        res.status(404).json({ error: `Project "${projectId}" not found` });
+        error(res, `Project "${projectId}" not found`, StatusCodes.NOT_FOUND);
         return;
       }
 
@@ -52,14 +53,18 @@ export function createRunRouter(
         }
       }
 
-      res.json({
-        projectId,
-        success: result.success,
-        output: result.output,
-        error: result.error,
-        exitCode: result.exitCode,
-        duration: result.duration,
-      });
+      success(
+        res,
+        {
+          projectId,
+          success: result.success,
+          output: result.output,
+          error: result.error,
+          exitCode: result.exitCode,
+          duration: result.duration,
+        },
+        "Run completed successfully",
+      );
     },
   );
 

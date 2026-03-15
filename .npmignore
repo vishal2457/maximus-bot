@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+
+# Development
+src
+web-src
+*.ts
+!*.d.ts
+tsconfig.json
+nodemon.json
+drizzle.config.ts
+
+# Build config
+build.js
+ecosystem.config.js
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+
+# Logs
+logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data
+data
+projects.json
+
+# Docs
+README.md
+
+# Other
+*.db
+*.sqlite

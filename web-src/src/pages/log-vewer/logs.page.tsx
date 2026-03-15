@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,34 +11,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useLogs, type LogType } from "@/lib/api";
 
 export const LogsPage = () => {
-  const [logs, setLogs] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [logType, setLogType] = useState<"debug" | "error">("debug");
-
-  useEffect(() => {
-    fetchLogs();
-  }, [logType]);
-
-  const fetchLogs = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/logs/${logType}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const text = await response.text();
-      setLogs(text);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setLogs("");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [logType, setLogType] = useState<LogType>("debug");
+  const { data: logs, isError, error, refetch, isFetching } = useLogs(logType);
 
   return (
     <Card className="m-6 w-full max-w-4xl">
@@ -50,9 +27,7 @@ export const LogsPage = () => {
           <Label htmlFor="log-type">Log Type:</Label>
           <Select
             value={logType}
-            onValueChange={(value: string) =>
-              setLogType(value as "debug" | "error")
-            }
+            onValueChange={(value: string) => setLogType(value as LogType)}
           >
             <SelectTrigger id="log-type">
               <SelectValue />
@@ -62,20 +37,20 @@ export const LogsPage = () => {
               <SelectItem value="error">Error</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={fetchLogs} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
+          <Button onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
 
-        {error && (
+        {isError && (
           <Alert variant="destructive">
-            <AlertDescription>Error: {error}</AlertDescription>
+            <AlertDescription>Error: {error?.message}</AlertDescription>
           </Alert>
         )}
 
         <ScrollArea className="h-96 w-full rounded-md border bg-muted/30">
           <pre className="p-4 text-sm text-green-400 whitespace-pre-wrap">
-            {logs}
+            {logs ?? ""}
           </pre>
         </ScrollArea>
       </CardContent>

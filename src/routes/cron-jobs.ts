@@ -9,6 +9,7 @@ import { cronJobRepository } from "../repositories/cron-job-repository";
 import { getNextRunTime, formatExecutionTime } from "../workers/cron-scheduler";
 import { logger } from "../shared/logger";
 import { getActiveAgent } from "../agent-manager";
+import { success, error, StatusCodes } from "../shared/api-response";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -23,7 +24,8 @@ export function createCronJobsRouter(
 
   router.get("/", (_req, res) => {
     const jobs = cronJobRepository.getActive();
-    res.json(
+    success(
+      res,
       jobs.map((job) => ({
         id: job.id,
         projectId: job.projectId,
@@ -35,6 +37,7 @@ export function createCronJobsRouter(
         lastRunAt: job.lastRunAt?.toISOString() || null,
         sdkType: job.sdkType,
       })),
+      "Cron jobs fetched successfully",
     );
   });
 
@@ -48,28 +51,35 @@ export function createCronJobsRouter(
     };
 
     if (!projectId || !cronExpression || !title || !prompt) {
-      res.status(400).json({
-        error: "projectId, cronExpression, title, and prompt are required",
-      });
+      error(
+        res,
+        "projectId, cronExpression, title, and prompt are required",
+        StatusCodes.BAD_REQUEST,
+      );
       return;
     }
 
     if (!isValidCronExpression(cronExpression)) {
-      res.status(400).json({
-        error:
-          "Invalid cron expression. Use 5-field format (minute hour day-of-month month day-of-week)",
-      });
+      error(
+        res,
+        "Invalid cron expression. Use 5-field format (minute hour day-of-month month day-of-week)",
+        StatusCodes.BAD_REQUEST,
+      );
       return;
     }
 
     const project = projectManager.getById(projectId);
     if (!project) {
-      res.status(404).json({ error: `Project "${projectId}" not found` });
+      error(res, `Project "${projectId}" not found`, StatusCodes.NOT_FOUND);
       return;
     }
 
     if (!discordBot?.isReady()) {
-      res.status(503).json({ error: "Discord bot is not available" });
+      error(
+        res,
+        "Discord bot is not available",
+        StatusCodes.SERVICE_UNAVAILABLE,
+      );
       return;
     }
 
@@ -106,7 +116,9 @@ export function createCronJobsRouter(
 
         if (!response.ok) {
           const errText = await response.text();
-          throw new Error(`Discord API error: ${response.status} ${errText}`);
+          throw new Error(
+            `Discord API apiError: ${response.status} ${errText}`,
+          );
         }
 
         const createdChannel = (await response.json()) as { id: string };
@@ -145,19 +157,24 @@ export function createCronJobsRouter(
         channelId,
       });
 
-      res.status(201).json({
-        id: jobId,
-        projectId: project.id,
-        title,
-        cronExpression,
-        channelId,
-        nextRunAt: nextRun.toISOString(),
-        sdkType: activeSdkType,
-      });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      res.status(StatusCodes.CREATED);
+      success(
+        res,
+        {
+          id: jobId,
+          projectId: project.id,
+          title,
+          cronExpression,
+          channelId,
+          nextRunAt: nextRun.toISOString(),
+          sdkType: activeSdkType,
+        },
+        "Cron job created successfully",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error("Failed to create cron job via API", { error: msg });
-      res.status(500).json({ error: msg });
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 
@@ -166,14 +183,14 @@ export function createCronJobsRouter(
     const job = cronJobRepository.getById(id);
 
     if (!job) {
-      res.status(404).json({ error: `Cron job "${id}" not found` });
+      error(res, `Cron job "${id}" not found`, StatusCodes.NOT_FOUND);
       return;
     }
 
     cronJobRepository.delete(id);
     logger.info("Cron job deleted via API", { jobId: id });
 
-    res.json({ ok: true });
+    success(res, { ok: true }, "Cron job deleted successfully");
   });
 
   return router;

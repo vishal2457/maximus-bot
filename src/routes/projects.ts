@@ -5,6 +5,7 @@ import {
 } from "express";
 import { ProjectManager } from "../project-manager";
 import { DiscordBot } from "../bots/discord-bot";
+import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createProjectsRouter(
   projectManager: ProjectManager,
@@ -13,7 +14,7 @@ export function createProjectsRouter(
   const router = Router();
 
   router.get("/", (_req, res) => {
-    res.json(projectManager.getAll());
+    success(res, projectManager.getAll(), "Projects fetched successfully");
   });
 
   router.post("/", async (req: ExpressRequest, res: ExpressResponse) => {
@@ -27,9 +28,11 @@ export function createProjectsRouter(
       };
 
     if (!name || !description || !folder) {
-      res
-        .status(400)
-        .json({ error: "name, description, and folder are required" });
+      error(
+        res,
+        "name, description, and folder are required",
+        StatusCodes.BAD_REQUEST,
+      );
       return;
     }
 
@@ -49,10 +52,15 @@ export function createProjectsRouter(
         await discordBot.syncChannels();
       }
 
-      res.status(201).json(newProject);
+      success(
+        res,
+        newProject,
+        "Project created successfully",
+        StatusCodes.CREATED,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
     }
   });
 

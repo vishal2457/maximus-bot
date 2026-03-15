@@ -8,6 +8,7 @@ export interface NotificationMessage {
 
 export interface NotificationService {
   notify(threadId: string, message: string): Promise<void>;
+  typing(threadId: string): Promise<void>;
   getPlatformType(): JobPlatform;
 }
 
@@ -50,8 +51,26 @@ export class DiscordNotifier implements NotificationService {
       throw new Error(`Discord API failed (${response.status}): ${errorText}`);
     }
   }
-}
 
+  async typing(threadId: string): Promise<void> {
+    const response = await fetch(
+      `${DISCORD_API_BASE_URL}/channels/${threadId}/typing`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bot ${this.botToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Discord API typing failed (${response.status}): ${errorText}`,
+      );
+    }
+  }
+}
 
 export function createNotificationService(
   platform: JobPlatform,

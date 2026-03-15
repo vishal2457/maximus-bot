@@ -4,60 +4,91 @@ import {
   DataTableColumnHeader,
 } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { CronJob } from "@/lib/api/cron-jobs";
 
-export const cronJobsColumnDefs: ColumnDef<any>[] = [
-  createSelectionColumn<any>(),
+export const cronJobsColumnDefs: ColumnDef<CronJob>[] = [
+  createSelectionColumn<CronJob>(),
   {
-    accessorKey: "name",
+    accessorKey: "title",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Name" />
+      <DataTableColumnHeader column={column} title="Title" />
     ),
-    cell: ({ row }: { row: any }) => {
-      const value = row.getValue("name");
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("title");
       return <span>{value}</span>;
     },
   },
   {
-    accessorKey: "scheduleTime",
+    accessorKey: "cronExpression",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Schedule Time" />
+      <DataTableColumnHeader column={column} title="Cron Expression" />
     ),
-    cell: ({ row }: { row: any }) => {
-      const value = row.getValue("scheduleTime");
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("cronExpression");
       return <span>{value}</span>;
     },
   },
   {
-    accessorKey: "expression",
+    accessorKey: "prompt",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Expression" />
+      <DataTableColumnHeader column={column} title="Prompt" />
     ),
-    cell: ({ row }: { row: any }) => {
-      const value = row.getValue("expression");
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("prompt");
+      return <span className="line-clamp-2">{value}</span>;
+    },
+  },
+  {
+    accessorKey: "authorTag",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Author Tag" />
+    ),
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("authorTag");
       return <span>{value}</span>;
     },
   },
   {
-    accessorKey: "workspace",
+    accessorKey: "sdkType",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Workspace" />
+      <DataTableColumnHeader column={column} title="SDK Type" />
     ),
-    cell: ({ row }: { row: any }) => {
-      const value = row.getValue("workspace");
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("sdkType");
       return <span>{value}</span>;
     },
   },
   {
-    accessorKey: "instruction",
+    accessorKey: "isActive",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Instruction" />
+      <DataTableColumnHeader column={column} title="Active" />
     ),
-    cell: ({ row }: { row: any }) => {
-      const value = row.getValue("instruction");
-      return <span>{value}</span>;
+    cell: ({ row }: { row: { getValue: (key: string) => boolean } }) => {
+      const value = row.getValue("isActive");
+      return <span>{value ? "Yes" : "No"}</span>;
     },
   },
-  createActionsColumn<any>([
+  {
+    accessorKey: "nextRunAt",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Next Run" />
+    ),
+    cell: ({ row }: { row: { getValue: (key: string) => string | null } }) => {
+      const value = row.getValue("nextRunAt");
+      return <span>{value ? new Date(value).toLocaleString() : "-"}</span>;
+    },
+  },
+  {
+    accessorKey: "createdAt",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Created At" />
+    ),
+    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
+      const value = row.getValue("createdAt");
+      return <span>{new Date(value).toLocaleString()}</span>;
+    },
+  },
+  createActionsColumn<CronJob>([
     {
       label: "View Details",
       onClick: (item) => {
