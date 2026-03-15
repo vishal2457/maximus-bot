@@ -68,7 +68,7 @@ export function createServer(
     next();
   }
 
-  app.use(createHealthRouter(projectManager, discordBot));
+  app.use("/health", createHealthRouter(projectManager, discordBot));
   app.use("/logs", createLogsRouter());
   app.use("/projects", createProjectsRouter(projectManager, discordBot));
   app.use("/sync", requireSecret, createSyncRouter(discordBot));
@@ -79,6 +79,8 @@ export function createServer(
   app.use("/api/jobs", createJobsRouter());
 
   if (fs.existsSync(webBuildPath)) {
+    app.use(express.static(webBuildPath));
+
     app.get("*", (_req, res) => {
       res.sendFile(path.join(webBuildPath, "index.html"));
     });

@@ -29,23 +29,23 @@ export const cronJobsColumnDefs: ColumnDef<CronJob>[] = [
     },
   },
   {
-    accessorKey: "prompt",
+    accessorKey: "projectId",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Prompt" />
+      <DataTableColumnHeader column={column} title="Project" />
     ),
     cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-      const value = row.getValue("prompt");
-      return <span className="line-clamp-2">{value}</span>;
+      const value = row.getValue("projectId");
+      return <span>{value}</span>;
     },
   },
   {
-    accessorKey: "authorTag",
+    accessorKey: "channelId",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Author Tag" />
+      <DataTableColumnHeader column={column} title="Channel ID" />
     ),
-    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-      const value = row.getValue("authorTag");
-      return <span>{value}</span>;
+    cell: ({ row }: { row: { getValue: (key: string) => string | null } }) => {
+      const value = row.getValue("channelId");
+      return <span>{value || "-"}</span>;
     },
   },
   {
@@ -76,16 +76,6 @@ export const cronJobsColumnDefs: ColumnDef<CronJob>[] = [
     cell: ({ row }: { row: { getValue: (key: string) => string | null } }) => {
       const value = row.getValue("nextRunAt");
       return <span>{value ? new Date(value).toLocaleString() : "-"}</span>;
-    },
-  },
-  {
-    accessorKey: "createdAt",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Created At" />
-    ),
-    cell: ({ row }: { row: { getValue: (key: string) => string } }) => {
-      const value = row.getValue("createdAt");
-      return <span>{new Date(value).toLocaleString()}</span>;
     },
   },
   createActionsColumn<CronJob>([

@@ -6,8 +6,6 @@ export type CronJob = {
   projectId: string;
   title: string;
   cronExpression: string;
-  prompt: string;
-  authorTag: string;
   channelId: string | null;
   threadId: string | null;
   sdkType: string;
@@ -28,12 +26,10 @@ export const cronJobsKeys = {
 };
 
 export function useCronJobs() {
-  return useQuery({
+  return useQuery<CronJob[]>({
     queryKey: cronJobsKeys.lists(),
     queryFn: async () => {
-      const response = await baseApi.get<{ rows: CronJob[]; count: number }>(
-        "/cron-jobs",
-      );
+      const response = await baseApi.get<CronJob[]>("/cron-jobs");
       return response.data.result;
     },
   });

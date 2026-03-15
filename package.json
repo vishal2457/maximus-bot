@@ -1,16 +1,16 @@
 {
-  "name": "mx-bot",
-  "version": "1.0.0",
-  "description": "Discord bot that routes messages to OpenCode in project workspaces",
-  "author": "Vishal Acharya <vishal@maximus.dev>",
+  "name": "maximus-bot",
+  "version": "0.0.1",
+  "description": "Handle coding agents using discord",
+  "author": "Vishal Acharya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vishal2457/mx-bot"
+    "url": "https://github.com/vishal2457/maximus-bot"
   },
-  "homepage": "https://github.com/vishal2457/mx-bot#readme",
+  "homepage": "https://github.com/vishal2457/maximus-bot#readme",
   "bugs": {
-    "url": "https://github.com/vishal2457/mx-bot/issues"
+    "url": "https://github.com/vishal2457/maximus-bot/issues"
   },
   "keywords": [
     "discord",
@@ -47,7 +47,8 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "web:build": "cd web-src && pnpm build"
+    "web:build": "cd web-src && pnpm build",
+    "pub": "pnpm run build && pnpm web:build && npm version patch && npm publish"
   },
   "dependencies": {
     "@chat-adapter/discord": "^4.20.1",

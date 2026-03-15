@@ -5,9 +5,8 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import * as https from "https";
-import * as zlib from "zlib";
 
-const GITHUB_REPO = "vishal2457/mx-bot";
+const GITHUB_REPO = "vishal2457/maximus-bot";
 const GITHUB_BRANCH = "main";
 
 const cli = cac("mx-bot");
