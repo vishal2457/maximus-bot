@@ -1,6 +1,5 @@
 import {
   type TableFeature,
-  type Table,
   type Updater,
   type TableState,
 } from "@tanstack/react-table";

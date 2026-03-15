@@ -3,12 +3,10 @@ import {
   createSelectionColumn,
   DataTableColumnHeader,
 } from "@/components/data-table";
-import { cn } from "@/lib/utils";
 import type { ColumnDef } from "@tanstack/react-table";
-import type { CronJob } from "./types";
 
-export const cronJobsColumnDefs: ColumnDef<CronJob>[] = [
-  createSelectionColumn<CronJob>(),
+export const cronJobsColumnDefs: ColumnDef<any>[] = [
+  createSelectionColumn<any>(),
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -59,7 +57,7 @@ export const cronJobsColumnDefs: ColumnDef<CronJob>[] = [
       return <span>{value}</span>;
     },
   },
-  createActionsColumn<CronJob>([
+  createActionsColumn<any>([
     {
       label: "View Details",
       onClick: (item) => {

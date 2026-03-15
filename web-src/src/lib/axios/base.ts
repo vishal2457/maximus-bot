@@ -2,7 +2,7 @@ import axios, { type AxiosRequestConfig } from "axios";
 import { toast } from "sonner";
 import type { ApiResponse } from "../models/api-response";
 
-const apiURL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const apiURL = import.meta.env.VITE_API_URL || "http://localhost:3005";
 
 const instance = axios.create({
 	baseURL: `${apiURL}/api`,

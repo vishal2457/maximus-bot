@@ -70,6 +70,7 @@ export function useDataTable<TData, TValue>({
         left: [],
         right: ["actions"],
       },
+      // @ts-ignore
       density: Density.NORMAL, // Add initial density state
     },
     state: {

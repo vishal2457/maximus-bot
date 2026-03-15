@@ -13,7 +13,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -86,7 +86,9 @@ export const SavedFilters = ({
     },
     toggleFavorite: (id: string) => {
       setSavedFilters((prev) =>
-        prev.map((f) => (f.id === id ? { ...f, isFavorite: !f.isFavorite } : f))
+        prev.map((f) =>
+          f.id === id ? { ...f, isFavorite: !f.isFavorite } : f,
+        ),
       );
     },
   };
@@ -243,7 +245,7 @@ const SavedFilterItem = ({ filter }: { filter: SavedFilter }) => {
               "size-4",
               filter.isFavorite
                 ? "fill-yellow-400 text-yellow-400"
-                : "text-muted-foreground"
+                : "text-muted-foreground",
             )}
           />
         </Button>

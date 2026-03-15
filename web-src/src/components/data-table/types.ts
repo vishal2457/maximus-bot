@@ -1,6 +1,5 @@
 import { type ColumnDef, type Table } from "@tanstack/react-table";
 import { type ReactNode } from "react";
-import { type DensityState } from "./features/density";
 
 export interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];

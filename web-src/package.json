@@ -7,11 +7,14 @@
     "dev": "vite --port 3004",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pm2:start": "npm run build && pm2 start npm --name \"maximus-web\" -- run dev",
+    "pm2:restart": "npm run build && pm2 restart maximus-web"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
