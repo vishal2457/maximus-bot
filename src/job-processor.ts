@@ -3,6 +3,7 @@ import {
   JobQueueManager,
   setPermissionHandler,
 } from "./workers/job-queue-manager";
+import { cronScheduler } from "./workers/cron-scheduler";
 import { logger } from "./shared/logger";
 import type { PermissionHandler } from "./permission-handler";
 
@@ -25,6 +26,7 @@ class JobProcessor {
     getDb();
 
     await this.queueManager.start();
+    cronScheduler.start();
     this.isRunning = true;
 
     logger.info("JobProcessor started");
@@ -36,6 +38,7 @@ class JobProcessor {
     }
 
     logger.info("Stopping JobProcessor");
+    cronScheduler.stop();
     await this.queueManager.stop();
     this.isRunning = false;
 

@@ -5,8 +5,33 @@ import { createServer } from "./server";
 import { shutdownOpenCodeRunner } from "./open-code-runner";
 import { logger } from "./shared/logger";
 import { jobProcessor } from "./job-processor";
+import { jobQueueRepository } from "./repositories/job-queue-repository";
 
 const PORT = parseInt(process.env.PORT || "0", 10);
+
+const RUNNING_JOBS_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+async function startRunningJobsScheduler(): Promise<void> {
+  const checkRunningJobs = (): void => {
+    const runningJobs = jobQueueRepository.getRunningJobs();
+    logger.info("Running jobs check", {
+      count: runningJobs.length,
+      jobs: runningJobs.map((j) => ({
+        id: j.id,
+        projectId: j.projectId,
+        status: j.status,
+        prompt: j.prompt?.slice(0, 50),
+        workerId: j.workerId,
+      })),
+    });
+  };
+
+  checkRunningJobs();
+  setInterval(checkRunningJobs, RUNNING_JOBS_CHECK_INTERVAL_MS);
+  logger.info("Running jobs scheduler started", {
+    intervalMs: RUNNING_JOBS_CHECK_INTERVAL_MS,
+  });
+}
 
 async function main(): Promise<void> {
   logger.info("Starting Maximus Bot");
@@ -41,6 +66,8 @@ async function main(): Promise<void> {
   }
 
   await jobProcessor.start();
+
+  await startRunningJobsScheduler();
 
   const app = createServer(projectManager, discordBot);
   const server = app.listen(PORT || undefined, () => {

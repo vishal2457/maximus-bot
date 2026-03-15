@@ -1,15 +1,24 @@
+import { getCurrentBranch, isGitRepository } from "../services/git-service";
 import { ProjectManager } from "../project-manager";
 import { logger } from "../shared/logger";
 import {
   DISCORD_API_BASE_URL,
   DISCORD_CHANNEL_TYPE_CATEGORY,
   DISCORD_CHANNEL_TYPE_TEXT,
+  DISCORD_CRON_CHANNEL_PREFIX,
 } from "../shared/constants";
 import {
   getDevelopmentChannelName,
   isLegacyDevelopmentChannelName,
 } from "../shared/discord-channel.util";
 import { jobQueueRepository } from "../repositories/job-queue-repository";
+import { cronJobRepository } from "../repositories/cron-job-repository";
+import { getActiveAgent } from "../agent-manager";
+import {
+  formatExecutionTime,
+  getNextRunTime,
+  parseCronToHuman,
+} from "../workers/cron-scheduler";
 import type {
   PermissionHandler,
   PermissionReply,
@@ -458,8 +467,7 @@ export class DiscordBot implements PermissionHandler {
             `Folder: \`${project.folder}\`\n` +
             `${project.description}\n\n` +
             `Mention the bot to start an OpenCode coding session. ` +
-            `Use threads to continue sessions, and mention the bot there too. ` +
-            `Prefix with \`#\` to leave a note.`,
+            `Use threads to continue sessions, and mention the bot there too.`,
         );
       } else if (developmentChannel.name !== expectedDevelopmentChannelName) {
         await this.discordApi(`/channels/${developmentChannel.id}`, "PATCH", {
@@ -529,6 +537,127 @@ export class DiscordBot implements PermissionHandler {
     return bot;
   }
 
+  private async tryHandleCronJobCreation(
+    message: ChatMessage,
+  ): Promise<{ handled: boolean; response?: string }> {
+    const text = message.text.trim();
+    const cronPattern = /^cron:\s*(\S+)\s+title:\s*(.+?)\s+prompt:\s*(.+)$/is;
+    const match = text.match(cronPattern);
+
+    if (!match) {
+      return { handled: false };
+    }
+
+    const [, cronExpression, title, prompt] = match;
+    const trimmedTitle = title.trim();
+    const trimmedPrompt = prompt.trim();
+
+    if (!this.isValidCronExpression(cronExpression)) {
+      return {
+        handled: true,
+        response: `Invalid cron expression: \`${cronExpression}\`. Please provide a valid 5-field cron expression (minute hour day-of-month month day-of-week).`,
+      };
+    }
+
+    try {
+      const jobId = `cron_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      const executionTime = formatExecutionTime(cronExpression);
+      const shortTitle =
+        trimmedTitle.length > 20
+          ? trimmedTitle.slice(0, 17) + "..."
+          : trimmedTitle;
+      const channelName =
+        `${DISCORD_CRON_CHANNEL_PREFIX}${shortTitle} ${executionTime}`
+          .toLowerCase()
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "")
+          .slice(0, 100);
+
+      const rawChannelId = message.threadId;
+      const project = this.projectManager.getByDiscordChannelId(rawChannelId);
+
+      if (!project) {
+        return {
+          handled: true,
+          response:
+            "Could not find a project for this channel. Please use this command in a project's development channel.",
+        };
+      }
+
+      const categoryId = project.discordCategoryId;
+      let channelId: string | null = null;
+
+      if (categoryId) {
+        const createdChannel = (await this.discordApi(
+          `/guilds/${GUILD_ID}/channels`,
+          "POST",
+          {
+            name: channelName,
+            type: DISCORD_CHANNEL_TYPE_TEXT,
+            parent_id: categoryId,
+            topic: `Cron job: ${trimmedTitle}\nSchedule: ${cronExpression}`,
+          },
+        )) as { id: string };
+        channelId = createdChannel.id;
+
+        this.channelMetaCache.set(createdChannel.id, {
+          id: createdChannel.id,
+          name: channelName,
+          type: DISCORD_CHANNEL_TYPE_TEXT,
+          parentId: categoryId,
+          fetchedAt: Date.now(),
+        });
+
+        logger.info("Created cron job channel", {
+          jobId,
+          channelId,
+          title: trimmedTitle,
+        });
+      }
+
+      const nextRun = getNextRunTime(cronExpression);
+      const sdkType = getActiveAgent();
+
+      cronJobRepository.create({
+        id: jobId,
+        projectId: project.id,
+        title: trimmedTitle,
+        cronExpression,
+        prompt: trimmedPrompt,
+        authorTag: message.author.fullName || message.author.userName,
+        channelId,
+        threadId: channelId,
+        sdkType,
+        isActive: 1,
+        nextRunAt: nextRun,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const humanReadable = parseCronToHuman(cronExpression);
+      return {
+        handled: true,
+        response: `✅ Cron job created: **${trimmedTitle}**\nSchedule: ${humanReadable}\nChannel: ${channelId ? `<#${channelId}>` : "none"}\nAgent: ${sdkType}`,
+      };
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.error("Failed to create cron job", { error: errMsg });
+      return {
+        handled: true,
+        response: `Failed to create cron job: ${errMsg}`,
+      };
+    }
+  }
+
+  private isValidCronExpression(expression: string): boolean {
+    const parts = expression.trim().split(/\s+/);
+    if (parts.length !== 5) {
+      return false;
+    }
+    const cronFieldRegex = /^(\*|(\d+(-\d+)?)(,\d+(-\d+)?)*(\/\d+)?|\*\/\d+)$/;
+    return parts.every((part) => cronFieldRegex.test(part));
+  }
+
   private async handleIncomingMessage(
     thread: ChatThread,
     message: ChatMessage,
@@ -538,6 +667,14 @@ export class DiscordBot implements PermissionHandler {
       threadId: message.threadId,
       preview: message.text.slice(0, 100),
     });
+
+    const cronJobResult = await this.tryHandleCronJobCreation(message);
+    if (cronJobResult.handled) {
+      if (cronJobResult.response) {
+        await thread.post(cronJobResult.response);
+      }
+      return;
+    }
 
     const permissionReply = this.tryHandlePermissionReply(message);
     if (permissionReply.handled) {
@@ -571,10 +708,6 @@ export class DiscordBot implements PermissionHandler {
 
     const prompt = this.extractMentionPrompt(message.text);
     if (!prompt) {
-      return;
-    }
-
-    if (prompt.startsWith("#")) {
       return;
     }
 
@@ -621,25 +754,40 @@ export class DiscordBot implements PermissionHandler {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const isLinearChannel = rawChannelId === project.linearIssuesChannelId;
 
+    const previousJob =
+      jobQueueRepository.getLatestCompletedJobByThreadId(finalThreadId);
+    const previousSessionId = previousJob?.sessionId || null;
+
+    console.log("[SESSION_DEBUG] Creating job", {
+      finalThreadId,
+      previousJobId: previousJob?.id,
+      previousSessionId,
+    });
+
     jobQueueRepository.createJob({
       id: jobId,
       projectId: project.id,
       channelId: rawChannelId,
       threadId: finalThreadId,
-      sessionId: null,
+      sessionId: previousSessionId,
       prompt,
       authorTag: message.author.fullName || message.author.userName,
       status: "pending",
       platform: "discord",
-      sdkType: "opencode",
+      sdkType: getActiveAgent(),
       retryCount: 0,
       createdAt: new Date(),
     });
 
+    const folderPath = project.folder;
+    const branchInfo = isGitRepository(folderPath)
+      ? `\nBranch: \`${getCurrentBranch(folderPath) || "unknown"}\``
+      : "";
+
     await targetThread.post(
       isLinearChannel
-        ? `OpenCode session queued for Linear issues in \`${project.name}\`...\n> ${prompt.slice(0, 200)}`
-        : `OpenCode session queued for \`${project.folder}\`...\n> ${prompt.slice(0, 200)}`,
+        ? `Request added to queue for Linear issues in \`${project.name}\`...${branchInfo}\n> ${prompt.slice(0, 200)}`
+        : `Request added to queue for \`${project.folder}\`...${branchInfo}\n> ${prompt.slice(0, 200)}`,
     );
 
     logger.info("Job queued", {

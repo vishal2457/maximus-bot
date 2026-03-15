@@ -50,6 +50,13 @@ function initializeSchema() {
   `);
 
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,

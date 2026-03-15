@@ -1,0 +1,51 @@
+{
+  "addedBlocks": [
+    {
+      "code": "data_table_1101",
+      "input": {}
+    },
+    {
+      "code": "app_layout_2699",
+      "input": {}
+    },
+    {
+      "code": "data_table_1036",
+      "input": {
+        "name": "cron jobs",
+        "fields": [
+          {
+            "title": "Name",
+            "accessorKey": "name"
+          },
+          {
+            "title": "Schedule Time",
+            "accessorKey": "scheduleTime"
+          },
+          {
+            "title": "Expression",
+            "accessorKey": "expression"
+          },
+          {
+            "title": "Workspace",
+            "accessorKey": "workspace"
+          },
+          {
+            "title": "Instruction",
+            "accessorKey": "instruction"
+          }
+        ],
+        "actions": [
+          {
+            "label": "View Details"
+          }
+        ],
+        "filters": [],
+        "typeName": "CronJob",
+        "pageTitle": "Cron Job List",
+        "buttonLabel": "View Details",
+        "hasSelection": true,
+        "pageDescription": "Manage your cron jobs"
+      }
+    }
+  ]
+}

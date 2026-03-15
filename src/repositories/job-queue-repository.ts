@@ -1,11 +1,7 @@
 import Database from "better-sqlite3";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
-import {
-  jobs,
-  type Job,
-  type NewJob
-} from "../db/job.schema";
+import { jobs, type Job, type NewJob } from "../db/job.schema";
 import { logger } from "../shared/logger";
 
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || "3", 10);
@@ -152,6 +148,16 @@ export class JobQueueRepository {
   createJob(job: NewJob): Job {
     this.db.insert(jobs).values(job).run();
     return this.getJobById(job.id)!;
+  }
+
+  getLatestCompletedJobByThreadId(threadId: string): Job | undefined {
+    return this.db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.threadId, threadId), eq(jobs.status, "completed")))
+      .orderBy(desc(jobs.completedAt))
+      .limit(1)
+      .get();
   }
 
   getJobStats(): {

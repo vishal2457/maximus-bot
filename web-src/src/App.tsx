@@ -1,25 +1,31 @@
-import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HomePage } from "./pages/home/home.page";
-import { LogsPage } from "./pages/log-vewer/logs.page";
-import { DiscordConfigPage } from "./pages/handle-secrets/handle-secrets.page";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { NuqsAdapter } from "nuqs/adapters/react";
+import { Toaster } from "sonner";
+import { MainRouter } from "@/components/router/main-router";
+import { queryClient } from "@/lib/query-client";
+import { ThemeProvider } from "next-themes";
+import { TeamProvider } from "@/components/layout/team-context";
 
 function App() {
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
-
   return (
-    <BrowserRouter>
-      <div className="flex h-screen w-screen items-center justify-center">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/handle-secrets" element={<DiscordConfigPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
+    <>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <TeamProvider>
+          <NuqsAdapter>
+            <QueryClientProvider client={queryClient}>
+              <MainRouter />
+            </QueryClientProvider>
+            <Toaster
+              visibleToasts={5}
+              position="bottom-right"
+              richColors
+              theme="dark"
+              closeButton
+            />
+          </NuqsAdapter>
+        </TeamProvider>
+      </ThemeProvider>
+    </>
   );
 }
 

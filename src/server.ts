@@ -5,11 +5,19 @@ import express, {
 } from "express";
 import { ProjectManager } from "./project-manager";
 import { DiscordBot } from "./bots/discord-bot";
-import { runOpenCode, formatResultForDiscord } from "./open-code-runner";
-import { logger } from "./shared/logger";
 import * as fs from "fs";
 import * as path from "path";
-import { setSecret, deleteSecret, getAllSecrets } from "./secrets-manager";
+import {
+  createHealthRouter,
+  createLogsRouter,
+  createProjectsRouter,
+  createSyncRouter,
+  createRunRouter,
+  createSecretsRouter,
+  createAgentRouter,
+  createCronJobsRouter,
+  createJobsRouter,
+} from "./routes";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -19,7 +27,11 @@ export function createServer(
 ): express.Application {
   const app = express();
 
-  // Discord interactions webhook must receive raw body for signature verification.
+  const webBuildPath = path.join(__dirname, "..", "dist", "web");
+  if (fs.existsSync(webBuildPath)) {
+    app.use(express.static(webBuildPath));
+  }
+
   if (discordBot) {
     app.post(
       "/api/webhooks/discord",
@@ -40,7 +52,6 @@ export function createServer(
 
   app.use(express.json());
 
-  // ─── Auth Middleware ──────────────────────────────────────────────────────
   function requireSecret(
     req: ExpressRequest,
     res: ExpressResponse,
@@ -58,216 +69,21 @@ export function createServer(
     next();
   }
 
-  // ─── Routes ──────────────────────────────────────────────────────────────
+  app.use(createHealthRouter(projectManager, discordBot));
+  app.use("/logs", createLogsRouter());
+  app.use("/projects", createProjectsRouter(projectManager, discordBot));
+  app.use("/sync", requireSecret, createSyncRouter(discordBot));
+  app.use("/run", requireSecret, createRunRouter(projectManager, discordBot));
+  app.use("/api/secrets", createSecretsRouter());
+  app.use("/api/agent", createAgentRouter());
+  app.use("/api/cron-jobs", createCronJobsRouter(projectManager, discordBot));
+  app.use("/api/jobs", createJobsRouter());
 
-  // Health check
-  app.get("/health", (_req, res) => {
-    res.json({
-      status: "ok",
-      uptime: process.uptime(),
-      discord: discordBot?.isReady() ? "connected" : "disabled",
-      projects: projectManager.getAll().length,
+  if (fs.existsSync(webBuildPath)) {
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(webBuildPath, "index.html"));
     });
-  });
-
-  // Log viewer endpoint
-  app.get("/logs/:type", async (_req, res) => {
-    const { type } = _req.params;
-    if (!["debug", "error"].includes(type)) {
-      res
-        .status(400)
-        .json({ error: "Invalid log type. Use 'debug' or 'error'." });
-      return;
-    }
-
-    try {
-      const logDir = path.join(__dirname, "..", "logs", type);
-      const files = fs.readdirSync(logDir);
-      const logFiles = files.filter((file) => file.endsWith(".log"));
-      if (logFiles.length === 0) {
-        res.status(404).json({ error: `No log files found for type ${type}` });
-        return;
-      }
-      // Sort by filename (assuming YYYY-MM-DD.log format) to get the latest
-      logFiles.sort().reverse();
-      const latestLogFile = logFiles[0];
-      const logPath = path.join(logDir, latestLogFile);
-      const logContent = fs.readFileSync(logPath, "utf8");
-      res.setHeader("Content-Type", "text/plain");
-      res.send(logContent);
-    } catch (error) {
-      console.error("Error reading log file:", error);
-      res.status(500).json({ error: "Failed to read log file" });
-    }
-  });
-
-  // List all projects
-  app.get("/projects", (_req, res) => {
-    res.json(projectManager.getAll());
-  });
-
-  // Create new project (unauthenticated)
-  app.post("/projects", async (req: ExpressRequest, res: ExpressResponse) => {
-    const { name, description, folder, linearProjectId, linearProjectName } =
-      req.body as {
-        name?: string;
-        description?: string;
-        folder?: string;
-        linearProjectId?: string;
-        linearProjectName?: string;
-      };
-
-    if (!name || !description || !folder) {
-      res
-        .status(400)
-        .json({ error: "name, description, and folder are required" });
-      return;
-    }
-
-    const id = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-
-    try {
-      const newProject = projectManager.add({
-        id,
-        name,
-        description,
-        folder,
-        linearProjectId,
-        linearProjectName,
-      });
-
-      if (discordBot) {
-        await discordBot.syncChannels();
-      }
-
-      res.status(201).json(newProject);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  // Sync channels (create any missing ones)
-  app.post("/sync", requireSecret, async (_req, res) => {
-    try {
-      if (discordBot) {
-        await discordBot.syncChannels();
-      }
-      res.json({ ok: true });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  // Run OpenCode for a specific project via HTTP
-  // POST /run/:projectId  { "prompt": "..." }
-  app.post(
-    "/run/:projectId",
-    requireSecret,
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      const { projectId } = req.params;
-      const { prompt } = req.body as { prompt?: string };
-
-      if (!prompt) {
-        res.status(400).json({ error: "prompt is required" });
-        return;
-      }
-
-      const project = projectManager.getById(projectId);
-      if (!project) {
-        res.status(404).json({ error: `Project "${projectId}" not found` });
-        return;
-      }
-
-      logger.info("OpenCode run triggered via HTTP", { projectId });
-
-      // Run OpenCode
-      const result = await runOpenCode(prompt, project.folder);
-
-      // Optionally post result to Discord
-      const msg = formatResultForDiscord(result, project.name);
-
-      if (discordBot?.isReady() && project.developmentChannelId) {
-        try {
-          await discordBot.postToChannel(
-            project.developmentChannelId,
-            `📡 *Triggered via HTTP*\n> ${prompt.slice(0, 200)}\n\n${msg}`,
-          );
-        } catch (e: unknown) {
-          const errMsg = e instanceof Error ? e.message : String(e);
-          logger.warn("Could not post run result to Discord", {
-            projectId,
-            error: errMsg,
-          });
-        }
-      }
-
-      res.json({
-        projectId,
-        success: result.success,
-        output: result.output,
-        error: result.error,
-        exitCode: result.exitCode,
-        duration: result.duration,
-      });
-    },
-  );
-
-  // Handle Secrets API
-  app.get("/api/secrets", async (_req, res) => {
-    try {
-      const secrets = await getAllSecrets();
-      const result: Record<string, string> = {};
-      for (const [key, value] of Object.entries(secrets)) {
-        result[key] = value ?? "";
-      }
-      res.json(result);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  app.post(
-    "/api/secrets",
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      const { key, value } = req.body as { key?: string; value?: string };
-
-      if (!key || !value) {
-        res.status(400).json({ error: "key and value are required" });
-        return;
-      }
-
-      try {
-        await setSecret(key, value);
-        res.json({ ok: true });
-      } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ error: msg });
-      }
-    },
-  );
-
-  app.delete(
-    "/api/secrets/:key",
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      const { key } = req.params;
-
-      if (!key) {
-        res.status(400).json({ error: "key is required" });
-        return;
-      }
-
-      try {
-        await deleteSecret(key);
-        res.json({ ok: true });
-      } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ error: msg });
-      }
-    },
-  );
+  }
 
   return app;
 }
