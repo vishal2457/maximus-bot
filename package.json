@@ -1,6 +1,6 @@
 {
   "name": "maximus-bot",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "Handle coding agents using discord",
   "author": "Vishal Acharya",
   "license": "MIT",
@@ -48,7 +48,7 @@
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "web:build": "cd web-src && pnpm build",
-    "pub": "pnpm run build && pnpm web:build && npm version patch && npm publish"
+    "pub": "pnpm run build && pnpm web:build && npm version patch --no-git-tag-version && npm publish --no-git-checks"
   },
   "dependencies": {
     "@chat-adapter/discord": "^4.20.1",

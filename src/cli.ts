@@ -9,7 +9,7 @@ import * as https from "https";
 const GITHUB_REPO = "vishal2457/maximus-bot";
 const GITHUB_BRANCH = "main";
 
-const cli = cac("mx-bot");
+const cli = cac("maximus-bot");
 
 async function downloadAndExtractZip(
   url: string,
