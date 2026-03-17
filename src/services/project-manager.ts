@@ -1,7 +1,7 @@
-import { getDb } from "./db";
-import { type NewProject, type Project } from "./db/project.schema";
-import { projectRepository } from "./repositories/project-repository";
-import { logger } from "./shared/logger";
+import { getDb } from "../db";
+import { type NewProject, type Project } from "../db/project.schema";
+import { projectRepository } from "../repositories/project-repository";
+import { logger } from "../shared/logger";
 
 const DEFAULT_PROJECT_NAME = "maximus-bot";
 

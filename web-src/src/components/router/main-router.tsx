@@ -4,7 +4,7 @@ import { PROTECTED_ROUTES, PUBLIC_ROUTES } from "./router-data";
 
 export const MainRouter = () => {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/web">
       <Routes>
         {PUBLIC_ROUTES.map((route) => {
           const Comp = route.component;

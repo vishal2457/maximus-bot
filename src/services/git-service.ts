@@ -1,5 +1,4 @@
 import { execSync } from "child_process";
-import path from "path";
 
 export function getCurrentBranch(cwd: string): string | null {
   try {

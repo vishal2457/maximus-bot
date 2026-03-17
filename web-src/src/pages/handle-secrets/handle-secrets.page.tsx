@@ -1,18 +1,12 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v4";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useSecrets, useSaveSecret } from "@/lib/api";
+import { KeyRound, Eye, EyeOff, Plus, Copy, ShieldAlert } from "lucide-react";
 
 const discordSecretsSchema = z.object({
   discord_bot_token: z.string().min(1, "Bot Token is required"),
@@ -47,6 +41,9 @@ const SECRET_KEYS: (keyof DiscordSecretsForm)[] = [
 export const DiscordConfigPage = () => {
   const { data: secrets } = useSecrets();
   const saveSecretMutation = useSaveSecret();
+  const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>(
+    {},
+  );
 
   const {
     register,
@@ -89,48 +86,112 @@ export const DiscordConfigPage = () => {
     }
   };
 
+  const toggleVisibility = (id: string) => {
+    setVisibleSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
-    <div className="p-6 w-full max-w-2xl">
-      <h1 className="text-2xl font-bold mb-6">Discord Configuration</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>Bot Credentials</CardTitle>
-          <CardDescription>
-            Configure your Discord bot credentials. These will be stored
-            securely in your system keychain.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {SECRET_KEYS.map((key) => (
-              <div key={key} className="space-y-2">
-                <Label htmlFor={key}>{SECRET_LABELS[key]}</Label>
-                <Input
-                  id={key}
-                  type="password"
-                  {...register(key)}
-                  placeholder={`Enter ${SECRET_LABELS[key].toLowerCase()}`}
-                  aria-invalid={!!errors[key]}
-                />
-                {errors[key] && (
-                  <p className="text-sm text-destructive">
-                    {errors[key]?.message}
-                  </p>
-                )}
-              </div>
-            ))}
-            <Button
-              type="submit"
-              disabled={saveSecretMutation.isPending}
-              className="mt-4"
+    <div className="space-y-6 p-4 md:p-8">
+      <div className="border-b border-[#333] pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold uppercase tracking-wider text-white">
+            Vault
+          </h1>
+          <p className="text-[#777] font-mono text-sm mt-1">
+            ENCRYPTED ENVIRONMENT VARIABLES
+          </p>
+        </div>
+        <button className="flex items-center gap-2 px-4 py-2 border border-[#FF4400] text-[#FF4400] hover:bg-[#FF4400] hover:text-black font-bold uppercase tracking-wider transition-colors">
+          <Plus size={18} />
+          Inject Secret
+        </button>
+      </div>
+
+      <div className="p-4 bg-[#F2A900]/10 border border-[#F2A900]/30 flex items-start gap-3">
+        <ShieldAlert size={20} className="text-[#F2A900] shrink-0 mt-0.5" />
+        <p className="text-sm text-[#F2A900] font-mono uppercase tracking-wide">
+          WARNING: Secrets are decrypted in memory only. Do not expose local
+          vault files.
+        </p>
+      </div>
+
+      <div className="p-6 bg-[#0D0D0D] border border-[#333]">
+        <h2 className="text-xl font-bold text-white uppercase tracking-wider mb-6">
+          Discord Configuration
+        </h2>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          {SECRET_KEYS.map((key) => (
+            <div
+              key={key}
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-[#050505] border border-[#222] hover:border-[#333] transition-colors"
             >
-              {saveSecretMutation.isPending
-                ? "Saving..."
-                : "Save Configuration"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              <div className="flex items-center gap-4">
+                <div className="text-[#555]">
+                  <KeyRound size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-mono tracking-wider">
+                    {SECRET_LABELS[key]}
+                  </h3>
+                  <p className="text-xs font-mono text-[#555] mt-1">{key}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-1 sm:max-w-md">
+                <div className="flex items-center bg-[#050505] border border-[#222] px-3 py-2 flex-1">
+                  <Input
+                    id={key}
+                    type={visibleSecrets[key] ? "text" : "password"}
+                    {...register(key)}
+                    placeholder={`Enter ${SECRET_LABELS[key].toLowerCase()}`}
+                    className="bg-transparent border-0 text-[#00FF41] font-mono tracking-widest focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleVisibility(key)}
+                    className="text-[#555] hover:text-white transition-colors ml-auto"
+                  >
+                    {visibleSecrets[key] ? (
+                      <EyeOff size={16} />
+                    ) : (
+                      <Eye size={16} />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="p-2 text-[#555] hover:text-white hover:bg-[#222] transition-colors"
+                    title="Copy"
+                  >
+                    <Copy size={18} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {errors && Object.keys(errors).length > 0 && (
+            <div className="p-4 bg-[#FF4400]/10 border border-[#FF4400]/30">
+              {Object.values(errors).map((error, i) => (
+                <p key={i} className="text-sm text-[#FF4400] font-mono">
+                  {error.message}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <Button
+            type="submit"
+            disabled={saveSecretMutation.isPending}
+            className="w-full py-3 bg-[#FF4400] hover:bg-[#FF4400]/90 text-black font-bold uppercase tracking-wider"
+          >
+            {saveSecretMutation.isPending ? "Saving..." : "Save Configuration"}
+          </Button>
+        </form>
+      </div>
     </div>
   );
 };

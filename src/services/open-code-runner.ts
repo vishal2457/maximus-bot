@@ -1,6 +1,6 @@
-import { CodingSdkOptions, OpencodeSdk } from "./sdk/opencode-sdk";
-import { logger } from "./shared/logger";
-import { OpenCodeResult } from "./types";
+import { CodingSdkOptions, OpencodeSdk } from "../sdk/opencode-sdk";
+import { logger } from "../shared/logger";
+import { OpenCodeResult } from "../types";
 
 // Constants for configuration
 const MAX_OUTPUT_LENGTH = parsePositiveInt(

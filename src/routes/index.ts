@@ -7,3 +7,4 @@ export { createCronJobsRouter } from "./cron-jobs";
 export { createJobsRouter } from "./jobs";
 export { createLogsRouter } from "./logs";
 export { createHealthRouter } from "./health";
+export { createTelemetryRouter } from "./telemetry";

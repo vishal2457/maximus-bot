@@ -1,5 +1,5 @@
 import type { Job, JobPlatform, SdkType } from "../db/job.schema";
-import { projectManager } from "../project-manager";
+import { projectManager } from "../services/project-manager";
 import { jobQueueRepository } from "../repositories/job-queue-repository";
 import type { CodingSdkInteractionHandler } from "../sdk/base-sdk";
 import { CodexSdk } from "../sdk/codex-sdk";
@@ -100,14 +100,22 @@ export async function executeJob(
     job.platform as JobPlatform,
   );
 
-  try {
-    await notificationService.typing(job.threadId);
-  } catch (typingError) {
-    logger.debug("Failed to send typing indicator", {
-      jobId: job.id,
-      error: typingError,
-    });
-  }
+  const TYPING_INTERVAL_MS = 8_000;
+  let typingIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  const sendTyping = async () => {
+    try {
+      await notificationService.typing(job.threadId);
+    } catch (typingError) {
+      logger.debug("Failed to send typing indicator", {
+        jobId: job.id,
+        error: typingError,
+      });
+    }
+  };
+
+  await sendTyping();
+  typingIntervalId = setInterval(sendTyping, TYPING_INTERVAL_MS);
 
   try {
     await notificationService.notify(
@@ -239,6 +247,9 @@ export async function executeJob(
       error: errorMessage,
     };
   } finally {
+    if (typingIntervalId) {
+      clearInterval(typingIntervalId);
+    }
     try {
       await codingSdk.shutdown();
     } catch (shutdownError) {

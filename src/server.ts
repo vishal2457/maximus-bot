@@ -4,7 +4,7 @@ import express, {
   NextFunction,
 } from "express";
 import cors from "cors";
-import { ProjectManager } from "./project-manager";
+import { ProjectManager } from "./services/project-manager";
 import { DiscordBot } from "./bots/discord-bot";
 import * as fs from "fs";
 import * as path from "path";
@@ -18,6 +18,7 @@ import {
   createAgentRouter,
   createCronJobsRouter,
   createJobsRouter,
+  createTelemetryRouter,
 } from "./routes";
 import { success, error, StatusCodes } from "./shared/api-response";
 
@@ -70,18 +71,19 @@ export function createServer(
 
   app.use("/health", createHealthRouter(projectManager, discordBot));
   app.use("/logs", createLogsRouter());
-  app.use("/projects", createProjectsRouter(projectManager, discordBot));
+  app.use("/api/project", createProjectsRouter(projectManager, discordBot));
   app.use("/sync", requireSecret, createSyncRouter(discordBot));
   app.use("/run", requireSecret, createRunRouter(projectManager, discordBot));
   app.use("/api/secrets", createSecretsRouter());
   app.use("/api/agent", createAgentRouter());
   app.use("/api/cron-jobs", createCronJobsRouter(projectManager, discordBot));
   app.use("/api/jobs", createJobsRouter());
+  app.use("/api/telemetry", createTelemetryRouter());
 
   if (fs.existsSync(webBuildPath)) {
-    app.use(express.static(webBuildPath));
+    app.use("/web", express.static(webBuildPath));
 
-    app.get("*", (_req, res) => {
+    app.get("/web/*", (_req, res) => {
       res.sendFile(path.join(webBuildPath, "index.html"));
     });
   }

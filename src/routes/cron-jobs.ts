@@ -3,10 +3,10 @@ import {
   Request as ExpressRequest,
   Response as ExpressResponse,
 } from "express";
-import { ProjectManager } from "../project-manager";
+import { ProjectManager } from "../services/project-manager";
 import { DiscordBot } from "../bots/discord-bot";
 import { cronJobRepository } from "../repositories/cron-job-repository";
-import { getNextRunTime, formatExecutionTime } from "../workers/cron-scheduler";
+import { getNextRunTime, formatExecutionTime } from "../services/cron-scheduler";
 import { logger } from "../shared/logger";
 import { getActiveAgent } from "../agent-manager";
 import { success, error, StatusCodes } from "../shared/api-response";

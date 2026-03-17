@@ -1,7 +1,7 @@
 import { jobQueueRepository } from "../repositories/job-queue-repository";
 import type { Job } from "../db/job.schema";
 import { logger } from "../shared/logger";
-import type { PermissionHandler } from "../permission-handler";
+import type { PermissionHandler } from "../services/permission-handler";
 import {
   executeJob,
   type PermissionRequest,

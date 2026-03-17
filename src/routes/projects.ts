@@ -3,7 +3,7 @@ import {
   Request as ExpressRequest,
   Response as ExpressResponse,
 } from "express";
-import { ProjectManager } from "../project-manager";
+import { ProjectManager } from "../services/project-manager";
 import { DiscordBot } from "../bots/discord-bot";
 import { success, error, StatusCodes } from "../shared/api-response";
 

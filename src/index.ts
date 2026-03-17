@@ -1,10 +1,10 @@
 import "dotenv/config";
-import { ProjectManager } from "./project-manager";
+import { ProjectManager } from "./services/project-manager";
 import { DiscordBot } from "./bots/discord-bot";
 import { createServer } from "./server";
-import { shutdownOpenCodeRunner } from "./open-code-runner";
+import { shutdownOpenCodeRunner } from "./services/open-code-runner";
 import { logger } from "./shared/logger";
-import { jobProcessor } from "./job-processor";
+import { jobProcessor } from "./services/job-processor";
 import { jobQueueRepository } from "./repositories/job-queue-repository";
 
 const PORT = parseInt(process.env.PORT || "0", 10);
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
       routes: [
         "GET /health",
         ...(discordBot ? ["POST /api/webhooks/discord"] : []),
-        "GET /projects",
+        "GET /api/project",
         "POST /sync",
         'POST /run/:projectId {"prompt":"..."}',
         "GET /logs/:type",
@@ -95,7 +95,7 @@ async function main(): Promise<void> {
       path: "/api/webhooks/discord",
     });
   }
-  logger.info("Registered route", { method: "GET", path: "/projects" });
+  logger.info("Registered route", { method: "GET", path: "/api/project" });
   logger.info("Registered route", { method: "POST", path: "/sync" });
   logger.info("Registered route", {
     method: "POST",

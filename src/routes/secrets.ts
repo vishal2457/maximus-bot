@@ -3,7 +3,7 @@ import {
   Request as ExpressRequest,
   Response as ExpressResponse,
 } from "express";
-import { setSecret, deleteSecret, getAllSecrets } from "../secrets-manager";
+import { setSecret, deleteSecret, getAllSecrets } from "../services/secrets-manager";
 import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createSecretsRouter(): Router {

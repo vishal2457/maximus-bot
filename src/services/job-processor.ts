@@ -1,10 +1,10 @@
-import { getDb } from "./db";
+import { getDb } from "../db";
 import {
   JobQueueManager,
   setPermissionHandler,
-} from "./workers/job-queue-manager";
-import { cronScheduler } from "./workers/cron-scheduler";
-import { logger } from "./shared/logger";
+} from "../workers/job-queue-manager";
+import { cronScheduler } from "./cron-scheduler";
+import { logger } from "../shared/logger";
 import type { PermissionHandler } from "./permission-handler";
 
 class JobProcessor {

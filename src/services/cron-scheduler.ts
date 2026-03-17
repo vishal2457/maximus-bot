@@ -56,6 +56,7 @@ export class CronScheduler {
     projectId: string;
     title: string;
     prompt: string;
+    cronExpression: string;
     authorTag: string;
     channelId: string | null;
     threadId: string | null;
@@ -88,7 +89,7 @@ export class CronScheduler {
       createdAt: new Date(),
     });
 
-    const nextRun = getNextRunTime(job.prompt);
+    const nextRun = getNextRunTime(job.cronExpression);
     cronJobRepository.updateNextRun(job.id, nextRun, new Date());
 
     logger.info("Cron job queued", { jobId, nextRun });

@@ -1,8 +1,17 @@
-import { HomeIcon, List, Lock, FileText } from "lucide-react";
+import {
+  HomeIcon,
+  List,
+  Lock,
+  FileText,
+  FolderKanban,
+  Plug,
+} from "lucide-react";
 import { HomePage } from "../../pages/home/home.page";
 import { DiscordConfigPage } from "../../pages/handle-secrets/handle-secrets.page";
 import { LogsPage } from "../../pages/log-vewer/logs.page";
 import { CronJobsListPage } from "../../pages/cron-jobs/cron-jobs-list/cron-jobs.page";
+import { ProjectsPage } from "../../pages/projects/projects.page";
+import { IntegrationsPage } from "../../pages/integrations/integrations.page";
 
 interface RouteData {
   path: string;
@@ -16,31 +25,45 @@ interface RouteData {
 const ROUTER_DATA: RouteData[] = [
   {
     path: "/",
-    name: "Home",
+    name: "Telemetry",
     component: HomePage,
     isProtected: true,
     icon: HomeIcon,
   },
   {
+    path: "/logs",
+    name: "System Logs",
+    component: LogsPage,
+    isProtected: true,
+    icon: FileText,
+  },
+  {
+    path: "/project",
+    name: "Workspaces",
+    component: ProjectsPage,
+    isProtected: true,
+    icon: FolderKanban,
+  },
+  {
     path: "/data",
-    name: "Data Table",
+    name: "Cron Jobs",
     component: CronJobsListPage,
     isProtected: true,
     icon: List,
   },
   {
     path: "/handle-secrets",
-    name: "Configure Secrets",
+    name: "Vault",
     component: DiscordConfigPage,
     isProtected: true,
     icon: Lock,
   },
   {
-    path: "/logs",
-    name: "Logs",
-    component: LogsPage,
+    path: "/integrations",
+    name: "Comms Link",
+    component: IntegrationsPage,
     isProtected: true,
-    icon: FileText,
+    icon: Plug,
   },
 ];
 

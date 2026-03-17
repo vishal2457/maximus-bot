@@ -1,5 +1,5 @@
 import { getCurrentBranch, isGitRepository } from "../services/git-service";
-import { ProjectManager } from "../project-manager";
+import { ProjectManager } from "../services/project-manager";
 import { logger } from "../shared/logger";
 import {
   DISCORD_API_BASE_URL,
@@ -18,13 +18,13 @@ import {
   formatExecutionTime,
   getNextRunTime,
   parseCronToHuman,
-} from "../workers/cron-scheduler";
+} from "../services/cron-scheduler";
 import type {
   PermissionHandler,
   PermissionReply,
   PermissionRequest,
   QuestionRequest,
-} from "../permission-handler";
+} from "../services/permission-handler";
 
 const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
 const DISCORD_TOKEN =
@@ -160,6 +160,7 @@ type MemoryStateModule = {
 
 type PendingPermission = {
   jobId: string;
+  threadId: string;
   resolve(reply: PermissionReply): void;
   reject(error: Error): void;
   expiresAt: number;
@@ -167,6 +168,7 @@ type PendingPermission = {
 
 type PendingQuestion = {
   jobId: string;
+  threadId: string;
   request: QuestionRequest;
   resolve(answers: string[][]): void;
   reject(error: Error): void;
@@ -273,6 +275,7 @@ export class DiscordBot implements PermissionHandler {
     return new Promise((resolve, reject) => {
       const pending: PendingPermission = {
         jobId: request.jobId,
+        threadId: request.threadId,
         resolve,
         reject,
         expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
@@ -306,6 +309,7 @@ export class DiscordBot implements PermissionHandler {
     return new Promise((resolve, reject) => {
       const pending: PendingQuestion = {
         jobId: request.jobId,
+        threadId: request.threadId,
         request,
         resolve,
         reject,
@@ -799,6 +803,29 @@ export class DiscordBot implements PermissionHandler {
 
   private tryHandlePermissionReply(message: ChatMessage): { handled: boolean } {
     const prompt = message.text.trim().toLowerCase();
+    const threadId = message.threadId;
+
+    let reply: PermissionReply | null = null;
+    if (
+      prompt === "approve" ||
+      prompt === "approve once" ||
+      prompt === "allow" ||
+      prompt === "once"
+    ) {
+      reply = "once";
+    } else if (
+      prompt === "approve always" ||
+      prompt === "allow always" ||
+      prompt === "always"
+    ) {
+      reply = "always";
+    } else if (prompt === "deny" || prompt === "reject") {
+      reply = "reject";
+    }
+
+    if (!reply) {
+      return { handled: false };
+    }
 
     for (const [jobId, pending] of this.pendingPermissions.entries()) {
       if (Date.now() > pending.expiresAt) {
@@ -806,25 +833,7 @@ export class DiscordBot implements PermissionHandler {
         continue;
       }
 
-      let reply: PermissionReply | null = null;
-      if (
-        prompt === "approve" ||
-        prompt === "approve once" ||
-        prompt === "allow" ||
-        prompt === "once"
-      ) {
-        reply = "once";
-      } else if (
-        prompt === "approve always" ||
-        prompt === "allow always" ||
-        prompt === "always"
-      ) {
-        reply = "always";
-      } else if (prompt === "deny" || prompt === "reject") {
-        reply = "reject";
-      }
-
-      if (reply) {
+      if (pending.threadId === threadId) {
         this.pendingPermissions.delete(jobId);
         pending.resolve(reply);
         return { handled: true };
@@ -844,9 +853,15 @@ export class DiscordBot implements PermissionHandler {
       return { handled: false };
     }
 
+    const threadId = message.threadId;
+
     for (const [jobId, pending] of this.pendingQuestions.entries()) {
       if (Date.now() > pending.expiresAt) {
         this.pendingQuestions.delete(jobId);
+        continue;
+      }
+
+      if (pending.threadId !== threadId) {
         continue;
       }
 

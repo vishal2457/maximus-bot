@@ -140,23 +140,78 @@ async function buildWebUI(): Promise<void> {
   console.log("Web UI built successfully.\n");
 }
 
+async function buildServer(): Promise<void> {
+  console.log("Building server...\n");
+
+  await new Promise<void>((resolve, reject) => {
+    const buildProcess = spawn("node", ["build.js"], {
+      stdio: "inherit",
+      shell: true,
+    });
+
+    buildProcess.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Server build failed with code ${code}`));
+      }
+    });
+  });
+
+  console.log("Server built successfully.\n");
+}
+
+async function runMigrations(): Promise<void> {
+  console.log("Running migrations...\n");
+
+  const { runMigrations: migrate } = await import("./db/migrate.js");
+  await migrate();
+
+  console.log("Migrations completed.\n");
+}
+
+function ensureDataDir(): string {
+  const dataDir = path.join(os.homedir(), "maximus-bot-data");
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    console.log(`Created data directory: ${dataDir}\n`);
+  }
+  return dataDir;
+}
+
+cli
+  .command("setup", "Setup Maximus Bot (build server, web app, run migrations)")
+  .action(async () => {
+    console.log("╔════════════════════════════════════════╗");
+    console.log("║      Maximus Bot Setup Starting...     ║");
+    console.log("╚════════════════════════════════════════╝\n");
+
+    ensureDataDir();
+    await buildServer();
+    await buildWebUI();
+    await runMigrations();
+
+    console.log("=".repeat(50));
+    console.log("✅ Setup complete!");
+    console.log("=".repeat(50));
+    console.log("\nRun 'mx-bot run' to start the server.\n");
+  });
+
 cli
   .command("run", "Start the Maximus Bot server")
   .option("-p, --port <port>", "Port to run the server on (default: 3000)", {
     default: "3000",
   })
   .option("-e, --env <path>", "Path to .env file")
-  .option("--skip-build", "Skip building the project")
   .action(async (options) => {
     const port = parseInt(options.port, 10);
-    const envPath = options.env;
 
     console.log("╔════════════════════════════════════════╗");
     console.log("║         Maximus Bot Starting...        ║");
     console.log("╚════════════════════════════════════════╝\n");
 
-    if (envPath) {
-      const resolvedPath = path.resolve(process.cwd(), envPath);
+    if (options.env) {
+      const resolvedPath = path.resolve(process.cwd(), options.env);
       if (fs.existsSync(resolvedPath)) {
         console.log(`Using env file: ${resolvedPath}\n`);
       } else {
@@ -165,37 +220,18 @@ cli
       }
     }
 
-    const dataDir = path.join(os.homedir(), "maximus-bot-data");
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log(`Created data directory: ${dataDir}\n`);
-    }
+    ensureDataDir();
 
     const distPath = path.join(__dirname, "bundle.js");
     if (!fs.existsSync(distPath)) {
-      console.log("Building the project...\n");
-      const buildProcess = spawn("node", ["build.js"], {
-        stdio: "inherit",
-        shell: true,
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        buildProcess.on("close", (code) => {
-          if (code === 0) {
-            resolve();
-          } else {
-            reject(new Error(`Build failed with code ${code}`));
-          }
-        });
-      });
-      console.log("");
+      console.error("Error: Server not built. Run 'mx-bot setup' first.\n");
+      process.exit(1);
     }
 
     const webDistPath = path.join(__dirname, "..", "dist", "web", "index.html");
-    const hasWebBuild = fs.existsSync(webDistPath);
-
-    if (!hasWebBuild && !options.skipBuild) {
-      await buildWebUI();
+    if (!fs.existsSync(webDistPath)) {
+      console.error("Error: Web UI not built. Run 'mx-bot setup' first.\n");
+      process.exit(1);
     }
 
     const serverProcess = spawn(
