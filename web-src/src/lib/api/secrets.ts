@@ -35,3 +35,17 @@ export function useSaveSecret() {
     },
   });
 }
+
+export function useUpdateSecret() {
+  return useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      const response = await baseApi.put<{ message: string }>(
+        `/secrets/${key}`,
+        {
+          value,
+        },
+      );
+      return response.data.result;
+    },
+  });
+}

@@ -6,13 +6,14 @@ import {
   DISCORD_CHANNEL_TYPE_CATEGORY,
   DISCORD_CHANNEL_TYPE_TEXT,
   DISCORD_CRON_CHANNEL_PREFIX,
+  DISCORD_MANAGE_CHANNEL_PREFIX,
 } from "../shared/constants";
-import {
-  getDevelopmentChannelName,
-  isLegacyDevelopmentChannelName,
-} from "../shared/discord-channel.util";
+import { getManageChannelName } from "../shared/discord-channel.util";
+import { getManageChannelPrompt } from "../shared/manage-channel-prompt";
 import { jobQueueRepository } from "../repositories/job-queue-repository";
 import { cronJobRepository } from "../repositories/cron-job-repository";
+import { channelConfigRepository } from "../repositories/channel-config-repository";
+import { pendingInteractionRepository } from "../repositories/pending-interaction-repository";
 import { getActiveAgent } from "../agent-manager";
 import {
   formatExecutionTime,
@@ -210,6 +211,13 @@ export class DiscordBot implements PermissionHandler {
       throw new Error("DISCORD_GUILD_ID is not set in environment");
     }
 
+    const cleanedUp = pendingInteractionRepository.cleanupExpired();
+    if (cleanedUp > 0) {
+      logger.info("Cleaned up expired pending interactions", {
+        count: cleanedUp,
+      });
+    }
+
     const bot = await this.ensureBot();
     await bot.initialize();
 
@@ -272,6 +280,25 @@ export class DiscordBot implements PermissionHandler {
   async onPermissionRequest(
     request: PermissionRequest,
   ): Promise<PermissionReply> {
+    const interaction = pendingInteractionRepository.create({
+      jobId: request.jobId,
+      threadId: request.threadId,
+      sessionId: request.sessionId,
+      type: "permission",
+      payload: JSON.stringify({
+        permission: request.permission,
+        patterns: request.patterns,
+        metadata: request.metadata,
+      }),
+      expiresAt: new Date(Date.now() + PERMISSION_TIMEOUT_MS),
+    });
+
+    logger.info("Stored pending permission request in database", {
+      interactionId: interaction.id,
+      jobId: request.jobId,
+      threadId: request.threadId,
+    });
+
     return new Promise((resolve, reject) => {
       const pending: PendingPermission = {
         jobId: request.jobId,
@@ -292,6 +319,7 @@ export class DiscordBot implements PermissionHandler {
           error,
         });
         this.pendingPermissions.delete(request.jobId);
+        pendingInteractionRepository.delete(interaction.id);
         reject(error);
       });
 
@@ -299,6 +327,7 @@ export class DiscordBot implements PermissionHandler {
         const existing = this.pendingPermissions.get(request.jobId);
         if (existing === pending) {
           this.pendingPermissions.delete(request.jobId);
+          pendingInteractionRepository.markExpired(interaction.id);
           reject(new Error("Permission request timed out"));
         }
       }, PERMISSION_TIMEOUT_MS);
@@ -306,6 +335,23 @@ export class DiscordBot implements PermissionHandler {
   }
 
   async onQuestionRequest(request: QuestionRequest): Promise<string[][]> {
+    const interaction = pendingInteractionRepository.create({
+      jobId: request.jobId,
+      threadId: request.threadId,
+      sessionId: request.sessionId,
+      type: "question",
+      payload: JSON.stringify({
+        questions: request.questions,
+      }),
+      expiresAt: new Date(Date.now() + PERMISSION_TIMEOUT_MS),
+    });
+
+    logger.info("Stored pending question request in database", {
+      interactionId: interaction.id,
+      jobId: request.jobId,
+      threadId: request.threadId,
+    });
+
     return new Promise((resolve, reject) => {
       const pending: PendingQuestion = {
         jobId: request.jobId,
@@ -325,6 +371,7 @@ export class DiscordBot implements PermissionHandler {
             error,
           });
           this.pendingQuestions.delete(request.jobId);
+          pendingInteractionRepository.delete(interaction.id);
           reject(error);
         },
       );
@@ -333,6 +380,7 @@ export class DiscordBot implements PermissionHandler {
         const existing = this.pendingQuestions.get(request.jobId);
         if (existing === pending) {
           this.pendingQuestions.delete(request.jobId);
+          pendingInteractionRepository.markExpired(interaction.id);
           reject(new Error("Question request timed out"));
         }
       }, PERMISSION_TIMEOUT_MS);
@@ -343,63 +391,26 @@ export class DiscordBot implements PermissionHandler {
     logger.info("Syncing Discord channels with projects");
 
     const projects = this.projectManager.getAll();
-    const needsFullGuildLookup = projects.some(
-      (project) => !project.discordCategoryId || !project.developmentChannelId,
-    );
-    const channels: DiscordChannelSummary[] = needsFullGuildLookup
-      ? ((await this.discordApi(
-          `/guilds/${GUILD_ID}/channels`,
-          "GET",
-        )) as DiscordChannelSummary[])
-      : [];
+    const channels: DiscordChannelSummary[] = (await this.discordApi(
+      `/guilds/${GUILD_ID}/channels`,
+      "GET",
+    )) as DiscordChannelSummary[];
 
     for (const channel of channels) {
       this.rememberChannelSummary(channel);
     }
 
     for (const project of projects) {
-      const expectedDevelopmentChannelName = getDevelopmentChannelName(
-        project.name,
-      );
+      const expectedManageChannelName = getManageChannelName(project.name);
       const categoryId = project.discordCategoryId;
-      const developmentChannelId = project.developmentChannelId;
-      if (categoryId && developmentChannelId) {
+
+      if (categoryId) {
         this.rememberChannelSummary({
           id: categoryId,
           name: project.name,
           type: DISCORD_CHANNEL_TYPE_CATEGORY,
           parent_id: null,
         });
-        this.rememberChannelSummary({
-          id: developmentChannelId,
-          name: expectedDevelopmentChannelName,
-          type: DISCORD_CHANNEL_TYPE_TEXT,
-          parent_id: categoryId,
-        });
-
-        const currentDevelopmentChannel =
-          await this.getChannelMetaCached(developmentChannelId);
-        if (
-          currentDevelopmentChannel?.name &&
-          currentDevelopmentChannel.name !== expectedDevelopmentChannelName
-        ) {
-          await this.discordApi(`/channels/${developmentChannelId}`, "PATCH", {
-            name: expectedDevelopmentChannelName,
-          });
-          this.channelMetaCache.set(developmentChannelId, {
-            ...currentDevelopmentChannel,
-            name: expectedDevelopmentChannelName,
-            fetchedAt: Date.now(),
-          });
-          logger.info("Renamed Discord development channel", {
-            projectId: project.id,
-            projectName: project.name,
-            channelId: developmentChannelId,
-            from: currentDevelopmentChannel.name,
-            to: expectedDevelopmentChannelName,
-          });
-        }
-        continue;
       }
 
       let category = channels.find((c) => {
@@ -428,27 +439,46 @@ export class DiscordBot implements PermissionHandler {
         this.rememberChannelSummary(category);
       }
 
-      const categoryChannels = channels.filter(
+      let manageChannel: DiscordChannelSummary | undefined;
+      const allCategoryChannels = channels.filter(
         (c) => c.parent_id === category!.id,
       );
 
-      let developmentChannel = categoryChannels.find((c) => {
+      const projectNameLower = project.name.toLowerCase();
+      const managePrefix = DISCORD_MANAGE_CHANNEL_PREFIX;
+
+      manageChannel = allCategoryChannels.find((c) => {
+        if (c.type !== DISCORD_CHANNEL_TYPE_TEXT) return false;
+        const nameLower = c.name.toLowerCase();        
         return (
-          c.type === DISCORD_CHANNEL_TYPE_TEXT &&
-          (c.name === expectedDevelopmentChannelName ||
-            isLegacyDevelopmentChannelName(c.name))
+          nameLower.startsWith(managePrefix)
         );
       });
 
-      if (!developmentChannel) {
-        developmentChannel = (await this.discordApi(
+      if (!manageChannel) {
+        const categoryChildren = channels.filter(
+          (c) => c.parent_id === category!.id,
+        );
+
+        manageChannel = categoryChildren.find((c) => {
+          if (c.type !== DISCORD_CHANNEL_TYPE_TEXT) return false;
+          const nameLower = c.name.toLowerCase();
+          return (
+            nameLower.startsWith(managePrefix) &&
+            nameLower.includes(projectNameLower)
+          );
+        });
+      }
+
+      if (!manageChannel) {
+        manageChannel = (await this.discordApi(
           `/guilds/${GUILD_ID}/channels`,
           "POST",
           {
-            name: expectedDevelopmentChannelName,
+            name: expectedManageChannelName,
             type: DISCORD_CHANNEL_TYPE_TEXT,
             parent_id: category.id,
-            topic: `OpenCode coding sessions for: ${project.description}`,
+            topic: `Manage channel for: ${project.name}`,
           },
         )) as {
           id: string;
@@ -457,47 +487,56 @@ export class DiscordBot implements PermissionHandler {
           parent_id?: string | null;
         };
 
-        logger.info("Created Discord development channel", {
+        logger.info("Created Discord manage channel", {
           projectId: project.id,
           projectName: project.name,
-          channelId: developmentChannel.id,
+          channelId: manageChannel.id,
         });
-        channels.push(developmentChannel);
-        this.rememberChannelSummary(developmentChannel);
+        channels.push(manageChannel);
+        this.rememberChannelSummary(manageChannel);
+
+        const existingConfig = channelConfigRepository.getByChannelId(
+          manageChannel.id,
+        );
+
+        if (!existingConfig) {
+          const configId = `ccfg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+          channelConfigRepository.create({
+            id: configId,
+            channelId: manageChannel.id,
+            projectId: project.id,
+            name: "Manage",
+            systemPrompt: getManageChannelPrompt(
+              project.name,
+              project.folder,
+              project.description,
+            ),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+          logger.info("Created default manage channel config", {
+            projectId: project.id,
+            channelId: manageChannel.id,
+            configId,
+          });
+        }
 
         await this.postToChannel(
-          developmentChannel.id,
-          `**${project.name}** development channel ready.\n` +
+          manageChannel.id,
+          `**${project.name}** manage channel ready.\n` +
             `Folder: \`${project.folder}\`\n` +
             `${project.description}\n\n` +
-            `Mention the bot to start an OpenCode coding session. ` +
-            `Use threads to continue sessions, and mention the bot there too.`,
+            `This is the management channel for this project.\n` +
+            `Mention me (@maximus) to manage channels, agents, and cron jobs.\n` +
+            `Use threads for continuous conversations.`,
         );
-      } else if (developmentChannel.name !== expectedDevelopmentChannelName) {
-        await this.discordApi(`/channels/${developmentChannel.id}`, "PATCH", {
-          name: expectedDevelopmentChannelName,
-        });
-        developmentChannel = {
-          ...developmentChannel,
-          name: expectedDevelopmentChannelName,
-        };
-        this.rememberChannelSummary(developmentChannel);
-        logger.info("Renamed Discord development channel", {
-          projectId: project.id,
-          projectName: project.name,
-          channelId: developmentChannel.id,
-          to: expectedDevelopmentChannelName,
-        });
       }
 
-      if (
-        project.discordCategoryId !== category.id ||
-        project.developmentChannelId !== developmentChannel.id
-      ) {
+      if (project.discordCategoryId !== category.id) {
         this.projectManager.updateDiscordChannelIds(
           project.id,
           category.id,
-          developmentChannel.id,
           project.linearIssuesChannelId || "",
         );
       }
@@ -506,6 +545,80 @@ export class DiscordBot implements PermissionHandler {
     logger.info("Discord sync complete", {
       projectCount: projects.length,
     });
+  }
+
+  async getChannelsForProject(
+    projectId: string,
+  ): Promise<{ id: string; name: string; type: number }[]> {
+    const project = this.projectManager.getById(projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+
+    if (!project.discordCategoryId) {
+      return [];
+    }
+
+    const allChannels = (await this.discordApi(
+      `/guilds/${GUILD_ID}/channels`,
+      "GET",
+    )) as DiscordChannelSummary[];
+
+    const projectChannels = allChannels
+      .filter(
+        (c) =>
+          c.parent_id === project.discordCategoryId &&
+          c.type === DISCORD_CHANNEL_TYPE_TEXT,
+      )
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        type: c.type,
+      }));
+
+    return projectChannels;
+  }
+
+  async createChannel(
+    projectId: string,
+    channelName: string,
+    topic?: string,
+  ): Promise<{ id: string; name: string; type: number }> {
+    const project = this.projectManager.getById(projectId);
+    if (!project) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+
+    if (!project.discordCategoryId) {
+      throw new Error(`Project does not have a Discord category configured`);
+    }
+
+    const createdChannel = (await this.discordApi(
+      `/guilds/${GUILD_ID}/channels`,
+      "POST",
+      {
+        name: channelName.toLowerCase().replace(/\s+/g, "-"),
+        type: DISCORD_CHANNEL_TYPE_TEXT,
+        parent_id: project.discordCategoryId,
+        topic: topic || "",
+      },
+    )) as { id: string; name: string; type: number };
+
+    this.channelMetaCache.set(createdChannel.id, {
+      id: createdChannel.id,
+      name: createdChannel.name,
+      type: createdChannel.type,
+      parentId: project.discordCategoryId,
+      fetchedAt: Date.now(),
+    });
+
+    logger.info("Created channel", {
+      projectId,
+      channelId: createdChannel.id,
+      channelName,
+    });
+
+    return createdChannel;
   }
 
   private async ensureBot(): Promise<ChatBotLike> {
@@ -592,31 +705,52 @@ export class DiscordBot implements PermissionHandler {
       let channelId: string | null = null;
 
       if (categoryId) {
-        const createdChannel = (await this.discordApi(
-          `/guilds/${GUILD_ID}/channels`,
-          "POST",
-          {
+        const categoryChildren = (await this.discordApi(
+          `/channels/${categoryId}/channels`,
+          "GET",
+        )) as DiscordChannelSummary[];
+
+        const channelNameLower = channelName.toLowerCase();
+        const existingChannel = categoryChildren.find(
+          (c) =>
+            c.type === DISCORD_CHANNEL_TYPE_TEXT &&
+            c.name.toLowerCase() === channelNameLower,
+        );
+
+        if (existingChannel) {
+          channelId = existingChannel.id;
+          logger.info("Using existing cron job channel", {
+            jobId,
+            channelId,
+            title: trimmedTitle,
+          });
+        } else {
+          const createdChannel = (await this.discordApi(
+            `/guilds/${GUILD_ID}/channels`,
+            "POST",
+            {
+              name: channelName,
+              type: DISCORD_CHANNEL_TYPE_TEXT,
+              parent_id: categoryId,
+              topic: `Cron job: ${trimmedTitle}\nSchedule: ${cronExpression}`,
+            },
+          )) as { id: string };
+          channelId = createdChannel.id;
+
+          this.channelMetaCache.set(createdChannel.id, {
+            id: createdChannel.id,
             name: channelName,
             type: DISCORD_CHANNEL_TYPE_TEXT,
-            parent_id: categoryId,
-            topic: `Cron job: ${trimmedTitle}\nSchedule: ${cronExpression}`,
-          },
-        )) as { id: string };
-        channelId = createdChannel.id;
+            parentId: categoryId,
+            fetchedAt: Date.now(),
+          });
 
-        this.channelMetaCache.set(createdChannel.id, {
-          id: createdChannel.id,
-          name: channelName,
-          type: DISCORD_CHANNEL_TYPE_TEXT,
-          parentId: categoryId,
-          fetchedAt: Date.now(),
-        });
-
-        logger.info("Created cron job channel", {
-          jobId,
-          channelId,
-          title: trimmedTitle,
-        });
+          logger.info("Created cron job channel", {
+            jobId,
+            channelId,
+            title: trimmedTitle,
+          });
+        }
       }
 
       const nextRun = getNextRunTime(cronExpression);
@@ -699,7 +833,39 @@ export class DiscordBot implements PermissionHandler {
       return;
     }
 
-    const project = this.projectManager.getByDiscordChannelId(rawChannelId);
+    let project = this.projectManager.getByDiscordChannelId(rawChannelId);
+
+    if (!project) {
+      const channelConfig =
+        channelConfigRepository.getByChannelId(rawChannelId);
+      if (channelConfig) {
+        project = this.projectManager.getById(channelConfig.projectId);
+        if (project) {
+          logger.info("Found project via channel config", {
+            channelId: rawChannelId,
+            projectId: project.id,
+            channelConfigId: channelConfig.id,
+          });
+        }
+      }
+    }
+
+    if (!project) {
+      const channelMeta = await this.getChannelMetaCached(rawChannelId);
+      if (channelMeta?.parentId) {
+        project = this.projectManager.getByDiscordCategoryId(
+          channelMeta.parentId,
+        );
+        if (project) {
+          logger.info("Found project via parent category", {
+            channelId: rawChannelId,
+            categoryId: channelMeta.parentId,
+            projectId: project.id,
+          });
+        }
+      }
+    }
+
     if (!project) {
       logger.warn("No project found for Discord channel", {
         channelId: rawChannelId,
@@ -762,10 +928,35 @@ export class DiscordBot implements PermissionHandler {
       jobQueueRepository.getLatestCompletedJobByThreadId(finalThreadId);
     const previousSessionId = previousJob?.sessionId || null;
 
+    let channelConfig =
+      channelConfigRepository.getByChannelId(rawChannelId) ||
+      channelConfigRepository.getByChannelId(message.threadId) ||
+      channelConfigRepository.getByChannelId(thread.channelId);
+
+    if (!channelConfig) {
+      const configsForProject = channelConfigRepository.getByProjectId(
+        project.id,
+      );
+      if (configsForProject.length > 0) {
+        channelConfig = configsForProject[0];
+        logger.info("Using first channel config for project as fallback", {
+          projectId: project.id,
+          channelConfigId: channelConfig.id,
+        });
+      }
+    }
+
+    const systemPrompt = channelConfig?.systemPrompt || null;
+
     console.log("[SESSION_DEBUG] Creating job", {
       finalThreadId,
       previousJobId: previousJob?.id,
       previousSessionId,
+      hasSystemPrompt: !!systemPrompt,
+      channelConfigId: channelConfig?.id,
+      rawChannelId,
+      messageThreadId: message.threadId,
+      threadChannelId: thread.channelId,
     });
 
     jobQueueRepository.createJob({
@@ -775,6 +966,7 @@ export class DiscordBot implements PermissionHandler {
       threadId: finalThreadId,
       sessionId: previousSessionId,
       prompt,
+      systemPrompt,
       authorTag: message.author.fullName || message.author.userName,
       status: "pending",
       platform: "discord",
@@ -801,9 +993,28 @@ export class DiscordBot implements PermissionHandler {
     });
   }
 
+  private isJobStillRunning(jobId: string): boolean {
+    const job = jobQueueRepository.getJobById(jobId);
+    if (!job) {
+      return false;
+    }
+    return job.status === "running";
+  }
+
+  private getRawThreadId(threadId: string): string {
+    const decoded = this.tryDecodeThreadId(threadId);
+    if (decoded?.threadId) {
+      return decoded.threadId;
+    }
+    if (decoded?.channelId) {
+      return decoded.channelId;
+    }
+    return threadId;
+  }
+
   private tryHandlePermissionReply(message: ChatMessage): { handled: boolean } {
     const prompt = message.text.trim().toLowerCase();
-    const threadId = message.threadId;
+    const rawThreadId = this.getRawThreadId(message.threadId);
 
     let reply: PermissionReply | null = null;
     if (
@@ -833,11 +1044,32 @@ export class DiscordBot implements PermissionHandler {
         continue;
       }
 
-      if (pending.threadId === threadId) {
+      if (pending.threadId === rawThreadId) {
         this.pendingPermissions.delete(jobId);
         pending.resolve(reply);
         return { handled: true };
       }
+    }
+
+    const dbPending =
+      pendingInteractionRepository.getPendingByThreadId(rawThreadId);
+    if (dbPending && dbPending.type === "permission") {
+      if (!this.isJobStillRunning(dbPending.jobId)) {
+        logger.warn("Permission reply received but job is no longer running", {
+          interactionId: dbPending.id,
+          jobId: dbPending.jobId,
+        });
+        pendingInteractionRepository.delete(dbPending.id);
+        return { handled: false };
+      }
+
+      pendingInteractionRepository.resolve(dbPending.id, reply);
+      logger.info("Resolved pending permission from database", {
+        interactionId: dbPending.id,
+        jobId: dbPending.jobId,
+        reply,
+      });
+      return { handled: true };
     }
 
     return { handled: false };
@@ -853,7 +1085,7 @@ export class DiscordBot implements PermissionHandler {
       return { handled: false };
     }
 
-    const threadId = message.threadId;
+    const rawThreadId = this.getRawThreadId(message.threadId);
 
     for (const [jobId, pending] of this.pendingQuestions.entries()) {
       if (Date.now() > pending.expiresAt) {
@@ -861,7 +1093,7 @@ export class DiscordBot implements PermissionHandler {
         continue;
       }
 
-      if (pending.threadId !== threadId) {
+      if (pending.threadId !== rawThreadId) {
         continue;
       }
 
@@ -893,6 +1125,51 @@ export class DiscordBot implements PermissionHandler {
       if (answers.length === questions.length) {
         this.pendingQuestions.delete(jobId);
         pending.resolve(answers);
+        return { handled: true };
+      }
+    }
+
+    const dbPending =
+      pendingInteractionRepository.getPendingByThreadId(rawThreadId);
+    if (dbPending && dbPending.type === "question") {
+      if (!this.isJobStillRunning(dbPending.jobId)) {
+        logger.warn("Question reply received but job is no longer running", {
+          interactionId: dbPending.id,
+          jobId: dbPending.jobId,
+        });
+        pendingInteractionRepository.delete(dbPending.id);
+        return { handled: false };
+      }
+
+      const payload = pendingInteractionRepository.parseQuestionPayload(
+        dbPending.payload,
+      );
+      const questions = payload.questions;
+      const answers: string[][] = [];
+
+      if (questions.length === 1) {
+        const answer = parseQuestionAnswer(questions[0], message.text.trim());
+        if (answer) {
+          answers.push(answer);
+        }
+      } else if (lines.length === questions.length) {
+        for (let i = 0; i < questions.length; i++) {
+          const answer = parseQuestionAnswer(questions[i], lines[i]);
+          if (answer) {
+            answers.push(answer);
+          }
+        }
+      }
+
+      if (answers.length === questions.length) {
+        pendingInteractionRepository.resolve(
+          dbPending.id,
+          JSON.stringify(answers),
+        );
+        logger.info("Resolved pending question from database", {
+          interactionId: dbPending.id,
+          jobId: dbPending.jobId,
+        });
         return { handled: true };
       }
     }

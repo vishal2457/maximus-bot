@@ -1,4 +1,4 @@
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { projects, type Project, type NewProject } from "../db/project.schema";
 
@@ -19,12 +19,7 @@ export class ProjectRepository {
     const result = db
       .select()
       .from(projects)
-      .where(
-        or(
-          eq(projects.developmentChannelId, channelId),
-          eq(projects.linearIssuesChannelId, channelId),
-        ),
-      )
+      .where(eq(projects.linearIssuesChannelId, channelId))
       .get();
     return result;
   }
@@ -42,14 +37,12 @@ export class ProjectRepository {
   updateDiscordChannelIds(
     id: string,
     categoryId: string,
-    developmentChannelId: string,
     linearIssuesChannelId: string,
   ): void {
     const db = getDb();
     db.update(projects)
       .set({
         discordCategoryId: categoryId,
-        developmentChannelId,
         linearIssuesChannelId,
       })
       .where(eq(projects.id, id))
@@ -75,7 +68,6 @@ export class ProjectRepository {
         description: project.description,
         folder: project.folder,
         discordCategoryId: null,
-        developmentChannelId: null,
         linearIssuesChannelId: null,
         linearProjectId: project.linearProjectId || null,
         linearProjectName: project.linearProjectName || null,
@@ -100,7 +92,6 @@ export class ProjectRepository {
           description: project.description,
           folder: project.folder,
           discordCategoryId: project.discordCategoryId || null,
-          developmentChannelId: project.developmentChannelId || null,
           linearIssuesChannelId: project.linearIssuesChannelId || null,
           linearProjectId: project.linearProjectId || null,
           linearProjectName: project.linearProjectName || null,

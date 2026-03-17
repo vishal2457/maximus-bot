@@ -3,7 +3,13 @@ import {
   Request as ExpressRequest,
   Response as ExpressResponse,
 } from "express";
-import { setSecret, deleteSecret, getAllSecrets } from "../services/secrets-manager";
+import {
+  setSecret,
+  deleteSecret,
+  getAllSecrets,
+  getSecret,
+  updateSecret,
+} from "../services/secrets-manager";
 import { success, error, StatusCodes } from "../shared/api-response";
 
 export function createSecretsRouter(): Router {
@@ -51,6 +57,28 @@ export function createSecretsRouter(): Router {
     try {
       await deleteSecret(key);
       success(res, { ok: true }, "Secret deleted successfully");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
+    }
+  });
+
+  router.put("/:key", async (req: ExpressRequest, res: ExpressResponse) => {
+    const { key } = req.params;
+    const { value } = req.body as { value?: string };
+
+    if (!key || !value) {
+      error(res, "key and value are required", StatusCodes.BAD_REQUEST);
+      return;
+    }
+
+    try {
+      const updated = await updateSecret(key, value);
+      if (!updated) {
+        error(res, "Secret not found", StatusCodes.NOT_FOUND);
+        return;
+      }
+      success(res, { ok: true }, "Secret updated successfully");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);

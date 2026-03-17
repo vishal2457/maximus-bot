@@ -120,13 +120,11 @@ export async function runOpenCode(
   for (let attempt = 0; attempt <= RUN_RETRY_COUNT; attempt += 1) {
     const sdk = new OpencodeSdk(options);
     try {
-      const result = await sdk.run(
-        prompt,
-        workingDir,
+      const result = await sdk.run(prompt, workingDir, {
         sessionId,
         interactionHandler,
         abortSignal,
-      );
+      });
 
       return {
         success: result.success,

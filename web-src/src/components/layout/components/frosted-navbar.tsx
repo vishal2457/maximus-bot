@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAgent, useSetAgent, type AgentType } from "@/lib/api";
 import { ChevronDown, Activity, Bell } from "lucide-react";
 import { toast } from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 export function FrostedNavbar() {
   const { data: agentData } = useAgent();
@@ -27,6 +28,7 @@ export function FrostedNavbar() {
   return (
     <header className="h-16 border-b border-[#333] bg-[#050505] sticky top-0 z-30 flex items-center justify-between px-4 md:px-8">
       <div className="flex items-center gap-4">
+        <SidebarTrigger className="md:hidden text-white hover:text-[#FF4400] hover:bg-[#222] p-2" />
         <div className="hidden md:flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-[#555]">
           <span>SYS_CTRL</span>
           <span className="text-[#333]">/</span>

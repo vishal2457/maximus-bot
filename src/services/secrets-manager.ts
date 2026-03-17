@@ -20,6 +20,18 @@ export async function setSecret(key: SecretKey, value: string): Promise<void> {
   await keytar.setPassword(SERVICE_NAME, key, value);
 }
 
+export async function updateSecret(
+  key: SecretKey,
+  value: string,
+): Promise<boolean> {
+  const existing = await keytar.getPassword(SERVICE_NAME, key);
+  if (!existing) {
+    return false;
+  }
+  await keytar.setPassword(SERVICE_NAME, key, value);
+  return true;
+}
+
 export async function getSecret(key: SecretKey): Promise<string | null> {
   return keytar.getPassword(SERVICE_NAME, key);
 }

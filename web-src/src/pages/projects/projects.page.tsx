@@ -1,8 +1,8 @@
-import { FolderKanban, MoreVertical, Plus, Terminal } from "lucide-react";
+import { FolderKanban, Terminal } from "lucide-react";
 import { useProjects, type Project } from "../../lib/api/projects";
 
 const getStatus = (project: Project): "active" | "idle" | "error" => {
-  if (project.developmentChannelId || project.linearIssuesChannelId) {
+  if (project.discordCategoryId || project.linearIssuesChannelId) {
     return "active";
   }
   return "idle";
@@ -13,7 +13,7 @@ export const ProjectsPage = () => {
 
   return (
     <div className="space-y-6 p-4 md:p-8">
-      <div className="border-b border-[#333] pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div className="border-b border-[#333] pb-4">
         <div>
           <h1 className="text-4xl font-bold uppercase tracking-wider text-white">
             Workspaces
@@ -22,10 +22,6 @@ export const ProjectsPage = () => {
             MANAGED PROJECT DIRECTORIES
           </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 border border-[#FF4400] text-[#FF4400] hover:bg-[#FF4400] hover:text-black font-bold uppercase tracking-wider transition-colors">
-          <Plus size={18} />
-          Init Project
-        </button>
       </div>
 
       {isLoading ? (
@@ -53,9 +49,6 @@ export const ProjectsPage = () => {
                 <div className="text-[#777] group-hover:text-[#FF4400] transition-colors">
                   <FolderKanban size={24} />
                 </div>
-                <button className="text-[#555] hover:text-white transition-colors">
-                  <MoreVertical size={20} />
-                </button>
               </div>
 
               <h3 className="text-2xl font-bold text-white uppercase tracking-wide mb-2">

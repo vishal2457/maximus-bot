@@ -19,6 +19,7 @@ import {
   createCronJobsRouter,
   createJobsRouter,
   createTelemetryRouter,
+  createChannelConfigRouter,
 } from "./routes";
 import { success, error, StatusCodes } from "./shared/api-response";
 
@@ -70,7 +71,7 @@ export function createServer(
   }
 
   app.use("/health", createHealthRouter(projectManager, discordBot));
-  app.use("/logs", createLogsRouter());
+  app.use("/api/logs", createLogsRouter());
   app.use("/api/project", createProjectsRouter(projectManager, discordBot));
   app.use("/sync", requireSecret, createSyncRouter(discordBot));
   app.use("/run", requireSecret, createRunRouter(projectManager, discordBot));
@@ -79,6 +80,7 @@ export function createServer(
   app.use("/api/cron-jobs", createCronJobsRouter(projectManager, discordBot));
   app.use("/api/jobs", createJobsRouter());
   app.use("/api/telemetry", createTelemetryRouter());
+  app.use("/api/channel-configs", createChannelConfigRouter(discordBot));
 
   if (fs.existsSync(webBuildPath)) {
     app.use("/web", express.static(webBuildPath));

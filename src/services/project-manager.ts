@@ -12,7 +12,6 @@ function mapDbProject(p: Project): Project {
     description: p.description,
     folder: p.folder,
     discordCategoryId: p.discordCategoryId || "",
-    developmentChannelId: p.developmentChannelId || "",
     linearIssuesChannelId: p.linearIssuesChannelId || "",
     linearProjectId: p?.linearProjectId || "",
     linearProjectName: p?.linearProjectName || "",
@@ -41,7 +40,6 @@ export class ProjectManager {
           description: "Default project",
           folder: workspacePath,
           discordCategoryId: "",
-          developmentChannelId: "",
           linearIssuesChannelId: "",
           linearProjectId: "",
           linearProjectName: "",
@@ -80,9 +78,6 @@ export class ProjectManager {
     this.projectsByChannelId.clear();
     for (const project of this.projects) {
       this.projectsById.set(project.id, project);
-      if (project.developmentChannelId) {
-        this.projectsByChannelId.set(project.developmentChannelId, project);
-      }
       if (project.linearIssuesChannelId) {
         this.projectsByChannelId.set(project.linearIssuesChannelId, project);
       }
@@ -127,28 +122,39 @@ export class ProjectManager {
     }
   }
 
+  getByDiscordCategoryId(categoryId: string): Project | undefined {
+    try {
+      const project = projectRepository.getByCategoryId(categoryId);
+      if (!project) return undefined;
+      return mapDbProject(project);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.error("Error getting project by Discord category id", {
+        categoryId,
+        error: errMsg,
+      });
+      return this.projects.find((p) => p.discordCategoryId === categoryId);
+    }
+  }
+
   updateDiscordChannelIds(
     projectId: string,
     categoryId: string,
-    developmentChannelId: string,
     linearIssuesChannelId: string,
   ): void {
     try {
       projectRepository.updateDiscordChannelIds(
         projectId,
         categoryId,
-        developmentChannelId,
         linearIssuesChannelId,
       );
       const project = this.projects.find((p) => p.id === projectId);
       if (project) {
         project.discordCategoryId = categoryId;
-        project.developmentChannelId = developmentChannelId;
         project.linearIssuesChannelId = linearIssuesChannelId;
         logger.info("Updated Discord channel IDs", {
           projectId,
           categoryId,
-          developmentChannelId,
           linearIssuesChannelId,
         });
       }
@@ -175,7 +181,6 @@ export class ProjectManager {
       description: project.description,
       folder: project.folder,
       discordCategoryId: "",
-      developmentChannelId: "",
       linearIssuesChannelId: "",
       linearProjectId: project.linearProjectId || "",
       linearProjectName: project.linearProjectName || "",

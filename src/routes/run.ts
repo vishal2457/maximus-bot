@@ -5,7 +5,10 @@ import {
 } from "express";
 import { ProjectManager } from "../services/project-manager";
 import { DiscordBot } from "../bots/discord-bot";
-import { runOpenCode, formatResultForDiscord } from "../services/open-code-runner";
+import {
+  runOpenCode,
+  formatResultForDiscord,
+} from "../services/open-code-runner";
 import { logger } from "../shared/logger";
 import { success, error, StatusCodes } from "../shared/api-response";
 
@@ -38,10 +41,10 @@ export function createRunRouter(
 
       const msg = formatResultForDiscord(result, project.name);
 
-      if (discordBot?.isReady() && project.developmentChannelId) {
+      if (discordBot?.isReady() && project.linearIssuesChannelId) {
         try {
           await discordBot.postToChannel(
-            project.developmentChannelId,
+            project.linearIssuesChannelId,
             `📡 *Triggered via HTTP*\n> ${prompt.slice(0, 200)}\n\n${msg}`,
           );
         } catch (e: unknown) {

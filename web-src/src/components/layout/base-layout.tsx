@@ -1,12 +1,17 @@
 import { AppSidebar } from "./app-sidebar";
+import { FrostedNavbar } from "./components/frosted-navbar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
 export const BaseLayout = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="flex h-screen w-full bg-[#030303] text-[#E0E0E0] overflow-hidden font-sans selection:bg-[#FF4400]/30">
+    <SidebarProvider>
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent">
-        {children}
-      </div>
-    </div>
+      <SidebarInset>
+        <FrostedNavbar />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-transparent">
+          {children}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 };

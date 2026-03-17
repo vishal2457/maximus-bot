@@ -3,6 +3,7 @@ import {
   CodingSdkOptions,
   CodingSdkResult,
   CodingSdkInteractionHandler,
+  RunOptions,
 } from "./base-sdk";
 import type { OpencodeClient, ServerOptions } from "@opencode-ai/sdk/v2" with {
   "resolution-mode": "import",
@@ -10,7 +11,12 @@ import type { OpencodeClient, ServerOptions } from "@opencode-ai/sdk/v2" with {
 import { logger } from "../shared/logger";
 
 // Re-export the types from base-sdk for compatibility
-export type { CodingSdkOptions, CodingSdkResult, CodingSdkInteractionHandler };
+export type {
+  CodingSdkOptions,
+  CodingSdkResult,
+  CodingSdkInteractionHandler,
+  RunOptions,
+};
 
 // We'll reuse the existing logic from open-code-runner.ts by adapting it
 class OpencodeSdk extends BaseCodingSdk {
@@ -207,9 +213,7 @@ class OpencodeSdk extends BaseCodingSdk {
   async run(
     prompt: string,
     workingDir: string,
-    sessionId?: string,
-    interactionHandler?: CodingSdkInteractionHandler,
-    abortSignal?: AbortSignal,
+    options?: RunOptions,
   ): Promise<CodingSdkResult> {
     const start = Date.now();
 
@@ -235,10 +239,8 @@ class OpencodeSdk extends BaseCodingSdk {
       };
     }
 
-    // We'll reuse the resolved directory logic from open-code-runner.ts
     const resolvedDir = this.resolveWorkingDir(workingDir);
     if (!resolvedDir.ok) {
-      // Type guard: if !ok, then we know it's the error variant
       const errorDir = resolvedDir as { ok: false; error: string };
       return {
         success: false,
@@ -259,11 +261,12 @@ class OpencodeSdk extends BaseCodingSdk {
           normalizedPrompt,
           resolvedDir.path,
           start,
-          sessionId,
-          interactionHandler,
+          options?.sessionId,
+          options?.interactionHandler,
           MAX_OUTPUT_LENGTH,
           RUN_TIMEOUT_MS,
-          abortSignal,
+          options?.abortSignal,
+          options?.systemPrompt,
         );
       } catch (error: unknown) {
         const canRetry = attempt < RUN_RETRY_COUNT;
@@ -284,7 +287,7 @@ class OpencodeSdk extends BaseCodingSdk {
             error: errMsg,
             exitCode: -1,
             duration,
-            sessionId,
+            sessionId: options?.sessionId,
           };
         }
 
@@ -322,8 +325,12 @@ class OpencodeSdk extends BaseCodingSdk {
     maxOutputLength: number = 1800,
     timeoutMs: number = 5 * 60 * 1000,
     abortSignal?: AbortSignal,
+    systemPrompt?: string,
   ): Promise<CodingSdkResult> {
-    logger.debug("runWithSdk called", { workingDir });
+    logger.debug("runWithSdk called", {
+      workingDir,
+      hasSystemPrompt: !!systemPrompt,
+    });
     const opencode = await this.getRuntime();
 
     const sessionId = existingSessionId
@@ -361,12 +368,27 @@ class OpencodeSdk extends BaseCodingSdk {
         controller.signal,
       );
 
+      const promptBody: {
+        sessionID: string;
+        directory: string;
+        parts: Array<{ type: "text"; text: string }>;
+        system?: string;
+      } = {
+        sessionID: sessionId,
+        directory: workingDir,
+        parts: [{ type: "text", text: prompt }],
+      };
+
+      if (systemPrompt) {
+        promptBody.system = systemPrompt;
+        logger.debug("System prompt added to request", {
+          sessionId,
+          systemPromptLength: systemPrompt.length,
+        });
+      }
+
       const promptResult = (await opencode.client.session.promptAsync(
-        {
-          sessionID: sessionId,
-          directory: workingDir,
-          parts: [{ type: "text", text: prompt }],
-        },
+        promptBody,
         { signal: controller.signal },
       )) as { data?: void; error?: unknown };
 

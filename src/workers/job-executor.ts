@@ -1,7 +1,7 @@
 import type { Job, JobPlatform, SdkType } from "../db/job.schema";
 import { projectManager } from "../services/project-manager";
 import { jobQueueRepository } from "../repositories/job-queue-repository";
-import type { CodingSdkInteractionHandler } from "../sdk/base-sdk";
+import type { CodingSdkInteractionHandler, RunOptions } from "../sdk/base-sdk";
 import { CodexSdk } from "../sdk/codex-sdk";
 import { OpencodeSdk } from "../sdk/opencode-sdk";
 import { createNotificationService } from "../services/notification-service";
@@ -155,13 +155,12 @@ export async function executeJob(
 
   try {
     const startTime = Date.now();
-    const result = await codingSdk.run(
-      job.prompt,
-      project.folder,
-      job.sessionId || undefined,
+    const runOptions: RunOptions = {
+      sessionId: job.sessionId || undefined,
       interactionHandler,
-      undefined,
-    );
+      systemPrompt: job.systemPrompt || undefined,
+    };
+    const result = await codingSdk.run(job.prompt, project.folder, runOptions);
     const duration = Date.now() - startTime;
 
     if (result.success) {

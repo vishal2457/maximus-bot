@@ -56,6 +56,13 @@ export interface CodingSdkInteractionHandler {
   ) => Promise<string[][]>;
 }
 
+export interface RunOptions {
+  sessionId?: string;
+  interactionHandler?: CodingSdkInteractionHandler;
+  abortSignal?: AbortSignal;
+  systemPrompt?: string;
+}
+
 export abstract class BaseCodingSdk {
   protected options: CodingSdkOptions;
 
@@ -75,9 +82,7 @@ export abstract class BaseCodingSdk {
   abstract run(
     prompt: string,
     workingDir: string,
-    sessionId?: string,
-    interactionHandler?: CodingSdkInteractionHandler,
-    abortSignal?: AbortSignal,
+    options?: RunOptions,
   ): Promise<CodingSdkResult>;
 
   abstract abortSession(

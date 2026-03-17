@@ -9,6 +9,7 @@ export const jobs = sqliteTable(
     threadId: text("thread_id").notNull(),
     sessionId: text("session_id"),
     prompt: text("prompt").notNull(),
+    systemPrompt: text("system_prompt"),
     authorTag: text("author_tag").notNull(),
     status: text("status").notNull().default("pending"),
     result: text("result"),

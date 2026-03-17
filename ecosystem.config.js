@@ -12,6 +12,7 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: "production",
+        HOST: "0.0.0.0",
       },
     },
   ],

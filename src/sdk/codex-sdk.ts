@@ -3,10 +3,16 @@ import {
   CodingSdkOptions,
   CodingSdkResult,
   CodingSdkInteractionHandler,
+  RunOptions,
 } from "./base-sdk";
 import { logger } from "../shared/logger";
 
-export type { CodingSdkOptions, CodingSdkResult, CodingSdkInteractionHandler };
+export type {
+  CodingSdkOptions,
+  CodingSdkResult,
+  CodingSdkInteractionHandler,
+  RunOptions,
+};
 
 type CodexThread = {
   getId: () => Promise<string>;
@@ -110,13 +116,16 @@ class CodexSdk extends BaseCodingSdk {
   async run(
     prompt: string,
     workingDir: string,
-    sessionId?: string,
-    _interactionHandler?: CodingSdkInteractionHandler,
-    abortSignal?: AbortSignal,
+    options?: RunOptions,
   ): Promise<CodingSdkResult> {
     const start = Date.now();
 
-    const normalizedPrompt = prompt.trim();
+    const systemPrompt = options?.systemPrompt;
+    const effectivePrompt = systemPrompt
+      ? `${systemPrompt}\n\n${prompt}`
+      : prompt;
+
+    const normalizedPrompt = effectivePrompt.trim();
     if (!normalizedPrompt) {
       return {
         success: false,
@@ -159,10 +168,10 @@ class CodexSdk extends BaseCodingSdk {
           normalizedPrompt,
           resolvedDir.path,
           start,
-          sessionId,
+          options?.sessionId,
           MAX_OUTPUT_LENGTH,
           RUN_TIMEOUT_MS,
-          abortSignal,
+          options?.abortSignal,
         );
       } catch (error: unknown) {
         const canRetry = attempt < RUN_RETRY_COUNT;
@@ -182,7 +191,7 @@ class CodexSdk extends BaseCodingSdk {
             error: errMsg,
             exitCode: -1,
             duration,
-            sessionId,
+            sessionId: options?.sessionId,
           };
         }
 

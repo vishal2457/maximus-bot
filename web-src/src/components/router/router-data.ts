@@ -5,6 +5,8 @@ import {
   FileText,
   FolderKanban,
   Plug,
+  Settings,
+  type LucideIcon,
 } from "lucide-react";
 import { HomePage } from "../../pages/home/home.page";
 import { DiscordConfigPage } from "../../pages/handle-secrets/handle-secrets.page";
@@ -12,13 +14,14 @@ import { LogsPage } from "../../pages/log-vewer/logs.page";
 import { CronJobsListPage } from "../../pages/cron-jobs/cron-jobs-list/cron-jobs.page";
 import { ProjectsPage } from "../../pages/projects/projects.page";
 import { IntegrationsPage } from "../../pages/integrations/integrations.page";
+import { ChannelConfigsPage } from "../../pages/channel-configs/channel-configs.page";
 
 interface RouteData {
   path: string;
   name: string;
   component: React.ComponentType;
   isProtected: boolean;
-  icon?: React.ComponentType;
+  icon?: LucideIcon;
   excludeFromSidebar?: boolean;
 }
 
@@ -64,6 +67,13 @@ const ROUTER_DATA: RouteData[] = [
     component: IntegrationsPage,
     isProtected: true,
     icon: Plug,
+  },
+  {
+    path: "/channel-configs",
+    name: "Channels",
+    component: ChannelConfigsPage,
+    isProtected: true,
+    icon: Settings,
   },
 ];
 

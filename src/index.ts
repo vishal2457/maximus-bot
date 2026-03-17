@@ -8,6 +8,7 @@ import { jobProcessor } from "./services/job-processor";
 import { jobQueueRepository } from "./repositories/job-queue-repository";
 
 const PORT = parseInt(process.env.PORT || "0", 10);
+const HOST = process.env.HOST || "0.0.0.0";
 
 const RUNNING_JOBS_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -70,12 +71,12 @@ async function main(): Promise<void> {
   await startRunningJobsScheduler();
 
   const app = createServer(projectManager, discordBot);
-  const server = app.listen(PORT || undefined, () => {
+  const server = app.listen(PORT, HOST, () => {
     const address = server.address();
     const actualPort =
       typeof address === "object" && address ? address.port : PORT;
     logger.info("HTTP server listening", {
-      url: `http://localhost:${actualPort}`,
+      url: `http://${HOST}:${actualPort}`,
       port: actualPort,
       routes: [
         "GET /health",
@@ -127,6 +128,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  console.log(err);
+  
   logger.error("Fatal startup error", { error: err });
   process.exit(1);
 });
