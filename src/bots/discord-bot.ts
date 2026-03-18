@@ -449,10 +449,8 @@ export class DiscordBot implements PermissionHandler {
 
       manageChannel = allCategoryChannels.find((c) => {
         if (c.type !== DISCORD_CHANNEL_TYPE_TEXT) return false;
-        const nameLower = c.name.toLowerCase();        
-        return (
-          nameLower.startsWith(managePrefix)
-        );
+        const nameLower = c.name.toLowerCase();
+        return nameLower.startsWith(managePrefix);
       });
 
       if (!manageChannel) {
@@ -1013,7 +1011,9 @@ export class DiscordBot implements PermissionHandler {
   }
 
   private tryHandlePermissionReply(message: ChatMessage): { handled: boolean } {
-    const prompt = message.text.trim().toLowerCase();
+    const prompt =
+      this.extractMentionPrompt(message.text)?.trim().toLowerCase() ||
+      message.text.trim().toLowerCase();
     const rawThreadId = this.getRawThreadId(message.threadId);
 
     let reply: PermissionReply | null = null;

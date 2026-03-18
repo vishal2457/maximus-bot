@@ -1,14 +1,5 @@
 import { useAgent, useTelemetry } from "@/lib/api";
-import {
-  Activity,
-  Cpu,
-  HardDrive,
-  Network,
-  Thermometer,
-  Zap,
-  Server,
-  Clock,
-} from "lucide-react";
+import { Cpu, HardDrive, Server, Clock } from "lucide-react";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) {
@@ -45,7 +36,6 @@ export const HomePage = () => {
   const processMemTotal = telemetry?.processMemory?.heapTotal ?? 1;
   const memoryPercent = (processMemUsed / processMemTotal) * 100;
   const processUptime = telemetry?.uptime?.process ?? 0;
-  const cpuCores = telemetry?.cpu?.cores ?? 0;
 
   const cpuHistory = Array.from({ length: 12 }, () => Math.random() * 100);
   cpuHistory[cpuHistory.length - 1] = cpuUsage;
@@ -68,38 +58,6 @@ export const HomePage = () => {
       color: "#00FF41",
       total: formatBytes(processMemTotal),
       percent: memoryPercent,
-    },
-    {
-      label: "Network I/O",
-      value: "0.0",
-      unit: "MB/s",
-      status: "OK",
-      icon: Network,
-      color: "#00FF41",
-    },
-    {
-      label: "Core Temp",
-      value: "--",
-      unit: "°C",
-      status: "",
-      icon: Thermometer,
-      color: "#E0E0E0",
-    },
-    {
-      label: "CPU Cores",
-      value: cpuCores.toString(),
-      unit: "",
-      status: "",
-      icon: Activity,
-      color: "#E0E0E0",
-    },
-    {
-      label: "Power Draw",
-      value: "--",
-      unit: "W",
-      status: "",
-      icon: Zap,
-      color: "#E0E0E0",
     },
     {
       label: "Active Port",

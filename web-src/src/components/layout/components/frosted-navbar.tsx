@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAgent, useSetAgent, type AgentType } from "@/lib/api";
-import { ChevronDown, Activity, Bell } from "lucide-react";
+import { ChevronDown, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
@@ -37,13 +37,6 @@ export function FrostedNavbar() {
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">
-        <div className="flex items-center gap-2 px-3 py-1 bg-[#00FF41]/10 border border-[#00FF41]/30">
-          <div className="w-2 h-2 bg-[#00FF41] animate-pulse" />
-          <span className="text-xs font-mono text-[#00FF41] uppercase tracking-widest">
-            Uplink_OK
-          </span>
-        </div>
-
         <div className="relative group">
           <button className="flex items-center gap-2 px-4 py-2 bg-[#0D0D0D] border border-[#333] hover:border-[#555] transition-colors text-sm font-bold uppercase tracking-wider text-white">
             <Activity size={16} className="text-[#FF4400]" />
@@ -66,11 +59,6 @@ export function FrostedNavbar() {
             ))}
           </div>
         </div>
-
-        <button className="text-[#777] hover:text-white transition-colors relative">
-          <Bell size={20} />
-          <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#FF4400] border border-[#050505]" />
-        </button>
       </div>
     </header>
   );

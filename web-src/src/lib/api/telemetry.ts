@@ -4,7 +4,6 @@ import baseApi from "../axios/base";
 export interface TelemetryData {
   cpu: {
     usage: number;
-    cores: number;
     model: string;
   };
   memory: {

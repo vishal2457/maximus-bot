@@ -222,6 +222,8 @@ cli
 
     ensureDataDir();
 
+    await runMigrations();
+
     const distPath = path.join(__dirname, "bundle.js");
     if (!fs.existsSync(distPath)) {
       console.error("Error: Server not built. Run 'mx-bot setup' first.\n");

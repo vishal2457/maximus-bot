@@ -6,7 +6,6 @@ import { success } from "../shared/api-response";
 interface TelemetryData {
   cpu: {
     usage: number;
-    cores: number;
     model: string;
   };
   memory: {
@@ -49,7 +48,6 @@ export function createTelemetryRouter(): Router {
     const telemetry: TelemetryData = {
       cpu: {
         usage: getCpuUsage(),
-        cores: os.cpus().length,
         model: os.cpus()[0]?.model || "Unknown",
       },
       memory: {
