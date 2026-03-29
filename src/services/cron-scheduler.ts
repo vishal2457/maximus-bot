@@ -83,7 +83,7 @@ export class CronScheduler {
       prompt: job.prompt,
       authorTag: job.authorTag,
       status: "pending",
-      platform: "discord",
+      platform: "custom",
       sdkType: job.sdkType as "opencode" | "codex",
       retryCount: 0,
       createdAt: new Date(),

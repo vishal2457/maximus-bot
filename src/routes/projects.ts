@@ -4,13 +4,9 @@ import {
   Response as ExpressResponse,
 } from "express";
 import { ProjectManager } from "../services/project-manager";
-import { DiscordBot } from "../bots/discord-bot";
 import { success, error, StatusCodes } from "../shared/api-response";
 
-export function createProjectsRouter(
-  projectManager: ProjectManager,
-  discordBot: DiscordBot | null,
-): Router {
+export function createProjectsRouter(projectManager: ProjectManager): Router {
   const router = Router();
 
   router.get("/", (_req, res) => {
@@ -47,10 +43,6 @@ export function createProjectsRouter(
         linearProjectId,
         linearProjectName,
       });
-
-      if (discordBot) {
-        await discordBot.syncChannels();
-      }
 
       success(
         res,

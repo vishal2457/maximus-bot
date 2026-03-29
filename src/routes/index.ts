@@ -1,5 +1,4 @@
 export { createProjectsRouter } from "./projects";
-export { createSyncRouter } from "./sync";
 export { createRunRouter } from "./run";
 export { createSecretsRouter } from "./secrets";
 export { createAgentRouter } from "./agent";
@@ -9,3 +8,5 @@ export { createLogsRouter } from "./logs";
 export { createHealthRouter } from "./health";
 export { createTelemetryRouter } from "./telemetry";
 export { createChannelConfigRouter } from "./channel-configs";
+export { createAuthRouter } from "./auth";
+export { createChatRouter } from "./chat";

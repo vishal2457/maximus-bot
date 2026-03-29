@@ -14,7 +14,7 @@ export class ProjectRepository {
     return result;
   }
 
-  getByDiscordChannelId(channelId: string): Project | undefined {
+  getByLinearChannelId(channelId: string): Project | undefined {
     const db = getDb();
     const result = db
       .select()
@@ -22,31 +22,6 @@ export class ProjectRepository {
       .where(eq(projects.linearIssuesChannelId, channelId))
       .get();
     return result;
-  }
-
-  getByCategoryId(categoryId: string): Project | undefined {
-    const db = getDb();
-    const result = db
-      .select()
-      .from(projects)
-      .where(eq(projects.discordCategoryId, categoryId))
-      .get();
-    return result;
-  }
-
-  updateDiscordChannelIds(
-    id: string,
-    categoryId: string,
-    linearIssuesChannelId: string,
-  ): void {
-    const db = getDb();
-    db.update(projects)
-      .set({
-        discordCategoryId: categoryId,
-        linearIssuesChannelId,
-      })
-      .where(eq(projects.id, id))
-      .run();
   }
 
   create(
@@ -67,7 +42,6 @@ export class ProjectRepository {
         name: project.name,
         description: project.description,
         folder: project.folder,
-        discordCategoryId: null,
         linearIssuesChannelId: null,
         linearProjectId: project.linearProjectId || null,
         linearProjectName: project.linearProjectName || null,
@@ -91,7 +65,6 @@ export class ProjectRepository {
           name: project.name,
           description: project.description,
           folder: project.folder,
-          discordCategoryId: project.discordCategoryId || null,
           linearIssuesChannelId: project.linearIssuesChannelId || null,
           linearProjectId: project.linearProjectId || null,
           linearProjectName: project.linearProjectName || null,

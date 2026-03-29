@@ -6,7 +6,6 @@ export type Project = {
   name: string;
   description: string;
   folder: string;
-  discordCategoryId: string;
   linearIssuesChannelId: string;
   linearProjectId: string;
   linearProjectName: string;

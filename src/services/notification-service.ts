@@ -1,5 +1,4 @@
 import type { JobPlatform } from "../db/job.schema";
-import { DISCORD_API_BASE_URL } from "../shared/constants";
 
 export interface NotificationMessage {
   threadId: string;
@@ -12,63 +11,18 @@ export interface NotificationService {
   getPlatformType(): JobPlatform;
 }
 
-export class DiscordNotifier implements NotificationService {
-  private botToken: string;
-  private maxMessageLength = 2000;
-
-  constructor() {
-    this.botToken =
-      process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || "";
-    if (!this.botToken) {
-      throw new Error("Discord bot token not configured");
-    }
-  }
-
+export class CustomNotifier implements NotificationService {
   getPlatformType(): JobPlatform {
-    return "discord";
+    return "custom";
   }
 
-  async notify(threadId: string, message: string): Promise<void> {
-    const truncatedMessage =
-      message.length > this.maxMessageLength
-        ? `${message.slice(0, this.maxMessageLength - 3)}...`
-        : message;
-
-    const response = await fetch(
-      `${DISCORD_API_BASE_URL}/channels/${threadId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bot ${this.botToken}`,
-        },
-        body: JSON.stringify({ content: truncatedMessage }),
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Discord API failed (${response.status}): ${errorText}`);
-    }
+  async notify(_threadId: string, _message: string): Promise<void> {
+    // Notifications are handled via Socket.IO in the new architecture.
+    // This is a no-op for job queue compatibility.
   }
 
-  async typing(threadId: string): Promise<void> {
-    const response = await fetch(
-      `${DISCORD_API_BASE_URL}/channels/${threadId}/typing`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bot ${this.botToken}`,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Discord API typing failed (${response.status}): ${errorText}`,
-      );
-    }
+  async typing(_threadId: string): Promise<void> {
+    // Typing indicators are handled via Socket.IO in the new architecture.
   }
 }
 
@@ -76,9 +30,10 @@ export function createNotificationService(
   platform: JobPlatform,
 ): NotificationService {
   switch (platform) {
+    case "custom":
     case "discord":
-      return new DiscordNotifier();
+    case "slack":
     default:
-      throw new Error(`Unknown platform: ${platform}`);
+      return new CustomNotifier();
   }
 }

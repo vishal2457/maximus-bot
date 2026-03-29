@@ -212,7 +212,7 @@ export async function shutdownOpenCodeRunner(): Promise<void> {
   return;
 }
 
-export function formatResultForDiscord(
+export function formatResult(
   result: OpenCodeResult,
   projectName: string,
 ): string {

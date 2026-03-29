@@ -4,25 +4,21 @@ import {
   Response as ExpressResponse,
 } from "express";
 import { ProjectManager } from "../services/project-manager";
-import { DiscordBot } from "../bots/discord-bot";
-import {
-  runOpenCode,
-  formatResultForDiscord,
-} from "../services/open-code-runner";
+import { chatService } from "../services/chat-service";
 import { logger } from "../shared/logger";
 import { success, error, StatusCodes } from "../shared/api-response";
 
-export function createRunRouter(
-  projectManager: ProjectManager,
-  discordBot: DiscordBot | null,
-): Router {
+export function createRunRouter(projectManager: ProjectManager): Router {
   const router = Router();
 
   router.post(
     "/:projectId",
     async (req: ExpressRequest, res: ExpressResponse) => {
       const { projectId } = req.params;
-      const { prompt } = req.body as { prompt?: string };
+      const { prompt, sessionId } = req.body as {
+        prompt?: string;
+        sessionId?: string;
+      };
 
       if (!prompt) {
         error(res, "prompt is required", StatusCodes.BAD_REQUEST);
@@ -35,39 +31,20 @@ export function createRunRouter(
         return;
       }
 
-      logger.info("OpenCode run triggered via HTTP", { projectId });
+      logger.info("Run triggered via HTTP", { projectId });
 
-      const result = await runOpenCode(prompt, project.folder);
-
-      const msg = formatResultForDiscord(result, project.name);
-
-      if (discordBot?.isReady() && project.linearIssuesChannelId) {
-        try {
-          await discordBot.postToChannel(
-            project.linearIssuesChannelId,
-            `📡 *Triggered via HTTP*\n> ${prompt.slice(0, 200)}\n\n${msg}`,
-          );
-        } catch (e: unknown) {
-          const errMsg = e instanceof Error ? e.message : String(e);
-          logger.warn("Could not post run result to Discord", {
-            projectId,
-            error: errMsg,
-          });
-        }
-      }
-
-      success(
-        res,
-        {
+      try {
+        const result = await chatService.sendMessage(
           projectId,
-          success: result.success,
-          output: result.output,
-          error: result.error,
-          exitCode: result.exitCode,
-          duration: result.duration,
-        },
-        "Run completed successfully",
-      );
+          prompt,
+          sessionId,
+        );
+        success(res, result, "Run completed successfully");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("Run failed", { projectId, error: msg });
+        error(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
+      }
     },
   );
 

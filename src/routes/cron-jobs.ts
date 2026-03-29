@@ -4,22 +4,16 @@ import {
   Response as ExpressResponse,
 } from "express";
 import { ProjectManager } from "../services/project-manager";
-import { DiscordBot } from "../bots/discord-bot";
 import { cronJobRepository } from "../repositories/cron-job-repository";
-import { getNextRunTime, formatExecutionTime } from "../services/cron-scheduler";
+import {
+  getNextRunTime,
+  formatExecutionTime,
+} from "../services/cron-scheduler";
 import { logger } from "../shared/logger";
 import { getActiveAgent } from "../agent-manager";
 import { success, error, StatusCodes } from "../shared/api-response";
 
-const GUILD_ID = process.env.DISCORD_GUILD_ID || "";
-const DISCORD_TOKEN =
-  process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || "";
-const DISCORD_API_BASE = "https://discord.com/api/v10";
-
-export function createCronJobsRouter(
-  projectManager: ProjectManager,
-  discordBot: DiscordBot | null,
-): Router {
+export function createCronJobsRouter(projectManager: ProjectManager): Router {
   const router = Router();
 
   router.get("/", (_req, res) => {
@@ -74,63 +68,8 @@ export function createCronJobsRouter(
       return;
     }
 
-    if (!discordBot?.isReady()) {
-      error(
-        res,
-        "Discord bot is not available",
-        StatusCodes.SERVICE_UNAVAILABLE,
-      );
-      return;
-    }
-
     try {
       const jobId = `cron_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-      const executionTime = formatExecutionTime(cronExpression);
-      const shortTitle = title.length > 20 ? title.slice(0, 17) + "..." : title;
-      const channelName = `cron - ${shortTitle} ${executionTime}`
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "")
-        .slice(0, 100);
-
-      const categoryId = project.discordCategoryId;
-      let channelId: string | null = null;
-
-      if (categoryId) {
-        const response = await fetch(
-          `${DISCORD_API_BASE}/guilds/${GUILD_ID}/channels`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bot ${DISCORD_TOKEN}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: channelName,
-              type: 0,
-              parent_id: categoryId,
-              topic: `Cron job: ${title}\nSchedule: ${cronExpression}`,
-            }),
-          },
-        );
-
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(
-            `Discord API apiError: ${response.status} ${errText}`,
-          );
-        }
-
-        const createdChannel = (await response.json()) as { id: string };
-        channelId = createdChannel.id;
-
-        logger.info("Created cron job channel via API", {
-          jobId,
-          channelId,
-          title,
-        });
-      }
-
       const nextRun = getNextRunTime(cronExpression);
       const activeSdkType = sdkType || getActiveAgent();
 
@@ -141,8 +80,8 @@ export function createCronJobsRouter(
         cronExpression,
         prompt,
         authorTag: "API",
-        channelId,
-        threadId: channelId,
+        channelId: null,
+        threadId: null,
         sdkType: activeSdkType,
         isActive: 1,
         nextRunAt: nextRun,
@@ -154,7 +93,6 @@ export function createCronJobsRouter(
         jobId,
         projectId: project.id,
         title,
-        channelId,
       });
 
       res.status(StatusCodes.CREATED);
@@ -165,7 +103,6 @@ export function createCronJobsRouter(
           projectId: project.id,
           title,
           cronExpression,
-          channelId,
           nextRunAt: nextRun.toISOString(),
           sdkType: activeSdkType,
         },

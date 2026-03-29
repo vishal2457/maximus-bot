@@ -4,8 +4,8 @@ import {
   Lock,
   FileText,
   FolderKanban,
-  Plug,
-  Settings,
+  Bot,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
 import { HomePage } from "../../pages/home/home.page";
@@ -13,8 +13,9 @@ import { DiscordConfigPage } from "../../pages/handle-secrets/handle-secrets.pag
 import { LogsPage } from "../../pages/log-vewer/logs.page";
 import { CronJobsListPage } from "../../pages/cron-jobs/cron-jobs-list/cron-jobs.page";
 import { ProjectsPage } from "../../pages/projects/projects.page";
-import { IntegrationsPage } from "../../pages/integrations/integrations.page";
-import { ChannelConfigsPage } from "../../pages/channel-configs/channel-configs.page";
+import { AgentsPage } from "../../pages/agents/agents.page";
+import { ChatPage } from "../../pages/chat/chat.page";
+import { LoginPage } from "../../pages/auth/login.page";
 
 interface RouteData {
   path: string;
@@ -27,11 +28,24 @@ interface RouteData {
 
 const ROUTER_DATA: RouteData[] = [
   {
+    path: "/login",
+    name: "Login",
+    component: LoginPage,
+    isProtected: false,
+  },
+  {
     path: "/",
     name: "Telemetry",
     component: HomePage,
     isProtected: true,
     icon: HomeIcon,
+  },
+  {
+    path: "/chat",
+    name: "Chat",
+    component: ChatPage,
+    isProtected: true,
+    icon: MessageSquare,
   },
   {
     path: "/logs",
@@ -42,7 +56,7 @@ const ROUTER_DATA: RouteData[] = [
   },
   {
     path: "/project",
-    name: "Workspaces",
+    name: "Projects",
     component: ProjectsPage,
     isProtected: true,
     icon: FolderKanban,
@@ -62,18 +76,12 @@ const ROUTER_DATA: RouteData[] = [
     icon: Lock,
   },
   {
-    path: "/integrations",
-    name: "Comms Link",
-    component: IntegrationsPage,
+    path: "/projects/:projectId/agents",
+    name: "Project Agents",
+    component: AgentsPage,
     isProtected: true,
-    icon: Plug,
-  },
-  {
-    path: "/channel-configs",
-    name: "Channels",
-    component: ChannelConfigsPage,
-    isProtected: true,
-    icon: Settings,
+    icon: Bot,
+    excludeFromSidebar: true,
   },
 ];
 

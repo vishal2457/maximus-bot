@@ -4,119 +4,19 @@ import {
   Response as ExpressResponse,
 } from "express";
 import { channelConfigRepository } from "../repositories/channel-config-repository";
-import { projectRepository } from "../repositories/project-repository";
 import {
   success,
   error as apiError,
   StatusCodes,
 } from "../shared/api-response";
-import { DiscordBot } from "../bots/discord-bot";
 
-export function createChannelConfigRouter(
-  discordBot: DiscordBot | null,
-): Router {
+export function createChannelConfigRouter(): Router {
   const router = Router();
 
   router.get("/", (_req, res) => {
     const configs = channelConfigRepository.getAll();
     success(res, configs, "Channel configs fetched successfully");
   });
-
-  router.get(
-    "/channels/:projectId",
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      if (!discordBot) {
-        apiError(
-          res,
-          "Discord bot not available",
-          StatusCodes.SERVICE_UNAVAILABLE,
-        );
-        return;
-      }
-
-      const { projectId } = req.params;
-      const project = projectRepository.getById(projectId);
-
-      if (!project) {
-        apiError(res, "Project not found", StatusCodes.NOT_FOUND);
-        return;
-      }
-
-      try {
-        const channels = await discordBot.getChannelsForProject(projectId);
-        success(res, channels, "Channels fetched successfully");
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        apiError(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
-      }
-    },
-  );
-
-  router.post("/sync", async (_req: ExpressRequest, res: ExpressResponse) => {
-    if (!discordBot) {
-      apiError(
-        res,
-        "Discord bot not available",
-        StatusCodes.SERVICE_UNAVAILABLE,
-      );
-      return;
-    }
-
-    try {
-      await discordBot.syncChannels();
-      success(res, { synced: true }, "Channels synced successfully");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      apiError(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
-    }
-  });
-
-  router.post(
-    "/create-channel",
-    async (req: ExpressRequest, res: ExpressResponse) => {
-      if (!discordBot) {
-        apiError(
-          res,
-          "Discord bot not available",
-          StatusCodes.SERVICE_UNAVAILABLE,
-        );
-        return;
-      }
-
-      const { projectId, channelName, topic } = req.body as {
-        projectId?: string;
-        channelName?: string;
-        topic?: string;
-      };
-
-      if (!projectId || !channelName) {
-        apiError(
-          res,
-          "projectId and channelName are required",
-          StatusCodes.BAD_REQUEST,
-        );
-        return;
-      }
-
-      const project = projectRepository.getById(projectId);
-      if (!project) {
-        apiError(res, "Project not found", StatusCodes.NOT_FOUND);
-        return;
-      }
-
-      try {
-        const channel = await discordBot.createChannel(
-          projectId,
-          channelName,
-          topic,
-        );
-        success(res, channel, "Channel created successfully");
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        apiError(res, msg, StatusCodes.INTERNAL_SERVER_ERROR);
-      }
-    },
-  );
 
   router.get("/:id", (req: ExpressRequest, res: ExpressResponse) => {
     const { id } = req.params;

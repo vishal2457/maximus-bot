@@ -11,7 +11,6 @@ function mapDbProject(p: Project): Project {
     name: p.name,
     description: p.description,
     folder: p.folder,
-    discordCategoryId: p.discordCategoryId || "",
     linearIssuesChannelId: p.linearIssuesChannelId || "",
     linearProjectId: p?.linearProjectId || "",
     linearProjectName: p?.linearProjectName || "",
@@ -21,7 +20,6 @@ function mapDbProject(p: Project): Project {
 export class ProjectManager {
   private projects: Project[] = [];
   private projectsById: Map<string, Project> = new Map();
-  private projectsByChannelId: Map<string, Project> = new Map();
 
   constructor() {
     this.ensureDefaultProject();
@@ -39,7 +37,6 @@ export class ProjectManager {
           name: DEFAULT_PROJECT_NAME,
           description: "Default project",
           folder: workspacePath,
-          discordCategoryId: "",
           linearIssuesChannelId: "",
           linearProjectId: "",
           linearProjectName: "",
@@ -75,12 +72,8 @@ export class ProjectManager {
 
   private rebuildIndexes(): void {
     this.projectsById.clear();
-    this.projectsByChannelId.clear();
     for (const project of this.projects) {
       this.projectsById.set(project.id, project);
-      if (project.linearIssuesChannelId) {
-        this.projectsByChannelId.set(project.linearIssuesChannelId, project);
-      }
     }
   }
 
@@ -107,66 +100,6 @@ export class ProjectManager {
     }
   }
 
-  getByDiscordChannelId(channelId: string): Project | undefined {
-    try {
-      const project = projectRepository.getByDiscordChannelId(channelId);
-      if (!project) return undefined;
-      return mapDbProject(project);
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error("Error getting project by Discord channel id", {
-        channelId,
-        error: errMsg,
-      });
-      return this.projectsByChannelId.get(channelId);
-    }
-  }
-
-  getByDiscordCategoryId(categoryId: string): Project | undefined {
-    try {
-      const project = projectRepository.getByCategoryId(categoryId);
-      if (!project) return undefined;
-      return mapDbProject(project);
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error("Error getting project by Discord category id", {
-        categoryId,
-        error: errMsg,
-      });
-      return this.projects.find((p) => p.discordCategoryId === categoryId);
-    }
-  }
-
-  updateDiscordChannelIds(
-    projectId: string,
-    categoryId: string,
-    linearIssuesChannelId: string,
-  ): void {
-    try {
-      projectRepository.updateDiscordChannelIds(
-        projectId,
-        categoryId,
-        linearIssuesChannelId,
-      );
-      const project = this.projects.find((p) => p.id === projectId);
-      if (project) {
-        project.discordCategoryId = categoryId;
-        project.linearIssuesChannelId = linearIssuesChannelId;
-        logger.info("Updated Discord channel IDs", {
-          projectId,
-          categoryId,
-          linearIssuesChannelId,
-        });
-      }
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error("Error updating Discord channel IDs", {
-        projectId,
-        error: errMsg,
-      });
-    }
-  }
-
   add(project: {
     id: NewProject["id"];
     name: NewProject["name"];
@@ -180,7 +113,6 @@ export class ProjectManager {
       name: project.name,
       description: project.description,
       folder: project.folder,
-      discordCategoryId: "",
       linearIssuesChannelId: "",
       linearProjectId: project.linearProjectId || "",
       linearProjectName: project.linearProjectName || "",

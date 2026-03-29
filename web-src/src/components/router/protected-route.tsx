@@ -2,8 +2,9 @@ import { Navigate, Outlet } from "react-router-dom";
 import { BaseLayout } from "../layout/base-layout";
 
 export const ProtectedRoute = () => {
-  // TODO: Replace with actual authentication check
-  const isAuthenticated = true;
+  const token = localStorage.getItem("accessToken");
+  const isAuthenticated = !!token;
+
   return isAuthenticated ? (
     <BaseLayout>
       <Outlet />

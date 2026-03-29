@@ -2,16 +2,13 @@ import keytar from "keytar";
 
 const SERVICE_NAME = "maximus-bot";
 
-export const DISCORD_SECRETS = {
-  BOT_TOKEN: "discord_bot_token",
-  GUILD_ID: "discord_guild_id",
-  APPLICATION_ID: "discord_application_id",
-  PUBLIC_KEY: "discord_public_key",
-  WEBHOOK_URL: "discord_webhook_url",
+export const APP_SECRETS = {
+  JWT_SECRET: "jwt_secret",
+  OPENCODE_API_KEY: "opencode_api_key",
 } as const;
 
 export const ALL_SECRETS = {
-  ...DISCORD_SECRETS,
+  ...APP_SECRETS,
 } as const;
 
 export type SecretKey = string;
@@ -45,16 +42,6 @@ export async function getAllSecrets(): Promise<Record<string, string | null>> {
   const result: Record<string, string | null> = {};
   for (const cred of credentials) {
     result[cred.account] = cred.password;
-  }
-  return result;
-}
-
-export async function getAllDiscordSecrets(): Promise<
-  Record<string, string | null>
-> {
-  const result: Record<string, string | null> = {};
-  for (const key of Object.values(DISCORD_SECRETS)) {
-    result[key] = await getSecret(key);
   }
   return result;
 }

@@ -1,8 +1,9 @@
-import { FolderKanban, Terminal } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { FolderKanban, Terminal, Bot } from "lucide-react";
 import { useProjects, type Project } from "../../lib/api/projects";
 
 const getStatus = (project: Project): "active" | "idle" | "error" => {
-  if (project.discordCategoryId || project.linearIssuesChannelId) {
+  if (project.linearIssuesChannelId) {
     return "active";
   }
   return "idle";
@@ -10,13 +11,14 @@ const getStatus = (project: Project): "active" | "idle" | "error" => {
 
 export const ProjectsPage = () => {
   const { data: projects, isLoading } = useProjects();
+  const navigate = useNavigate();
 
   return (
     <div className="space-y-6 p-4 md:p-8">
       <div className="border-b border-[#333] pb-4">
         <div>
           <h1 className="text-4xl font-bold uppercase tracking-wider text-white">
-            Workspaces
+            Projects
           </h1>
           <p className="text-[#777] font-mono text-sm mt-1">
             MANAGED PROJECT DIRECTORIES
@@ -49,6 +51,13 @@ export const ProjectsPage = () => {
                 <div className="text-[#777] group-hover:text-[#FF4400] transition-colors">
                   <FolderKanban size={24} />
                 </div>
+                <button
+                  onClick={() => navigate(`/projects/${project.id}/agents`)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#222] text-[#CCC] text-xs font-bold uppercase tracking-wide hover:bg-[#FF4400] hover:text-white transition-colors"
+                >
+                  <Bot size={14} />
+                  Agents
+                </button>
               </div>
 
               <h3 className="text-2xl font-bold text-white uppercase tracking-wide mb-2">

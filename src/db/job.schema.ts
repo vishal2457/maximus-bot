@@ -37,6 +37,6 @@ export const jobs = sqliteTable(
 
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
-export type JobPlatform = "discord" | "slack";
+export type JobPlatform = "custom" | "discord" | "slack";
 export type SdkType = "opencode" | "codex";
 export type JobStatus = "pending" | "running" | "completed" | "failed";

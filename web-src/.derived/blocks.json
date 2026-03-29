@@ -26,8 +26,8 @@
             "accessorKey": "expression"
           },
           {
-            "title": "Workspace",
-            "accessorKey": "workspace"
+            "title": "Project",
+            "accessorKey": "project"
           },
           {
             "title": "Instruction",

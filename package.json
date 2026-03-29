@@ -1,7 +1,7 @@
 {
   "name": "maximus-bot",
-  "version": "0.0.4",
-  "description": "Handle coding agents using discord",
+  "version": "0.1.0",
+  "description": "Custom chat interface for coding agents",
   "author": "Vishal Acharya",
   "license": "MIT",
   "repository": {
@@ -13,10 +13,10 @@
     "url": "https://github.com/vishal2457/maximus-bot/issues"
   },
   "keywords": [
-    "discord",
-    "bot",
     "opencode",
     "ai",
+    "chat",
+    "agents",
     "automation"
   ],
   "engines": {
@@ -51,29 +51,29 @@
     "pub": "pnpm run build && pnpm web:build && npm version patch --no-git-tag-version && npm publish --no-git-checks"
   },
   "dependencies": {
-    "@chat-adapter/discord": "^4.20.1",
-    "@chat-adapter/state-memory": "^4.20.1",
-    "@openai/codex-sdk": "^0.114.0",
     "@opencode-ai/sdk": "^1.2.24",
     "axios": "^1.6.2",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.2",
     "cac": "^6.7.14",
-    "chat": "^4.20.1",
     "cors": "^2.8.6",
-    "discord.js": "^14.19.3",
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.45.1",
     "express": "^4.18.2",
     "extract-zip": "^2.0.1",
+    "jsonwebtoken": "^9.0.3",
     "keytar": "^7.9.0",
     "p-queue": "^9.1.0",
+    "socket.io": "^4.8.3",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.4.0",
     "drizzle-kit": "^0.31.9",
     "esbuild": "^0.20.2",

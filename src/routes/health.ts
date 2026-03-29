@@ -1,12 +1,9 @@
 import { Router, Response as ExpressResponse } from "express";
 import { ProjectManager } from "../services/project-manager";
-import { DiscordBot } from "../bots/discord-bot";
+import { opencodeRuntimeManager } from "../services/opencode-runtime-manager";
 import { success } from "../shared/api-response";
 
-export function createHealthRouter(
-  projectManager: ProjectManager,
-  discordBot: DiscordBot | null,
-): Router {
+export function createHealthRouter(projectManager: ProjectManager): Router {
   const router = Router();
 
   router.get("/", (_req, res: ExpressResponse) => {
@@ -15,7 +12,7 @@ export function createHealthRouter(
       {
         status: "ok",
         uptime: process.uptime(),
-        discord: discordBot?.isReady() ? "connected" : "disabled",
+        opencodeRuntimes: opencodeRuntimeManager.getActiveProjectIds().length,
         projects: projectManager.getAll().length,
       },
       "Health check successful",
